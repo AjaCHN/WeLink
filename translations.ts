@@ -1,3 +1,4 @@
+
 import { Language } from "./types";
 
 export const TRANSLATIONS = {
@@ -44,6 +45,28 @@ export const TRANSLATIONS = {
       btn: "Download Installer (x64)",
       source: "View Build Instructions",
       version: "Version 1.0.0-beta"
+    },
+    settings: {
+      title: "Settings",
+      categories: {
+        general: "General",
+        migration: "Migration",
+        ai: "AI Configuration"
+      },
+      language: "Language",
+      theme: "Theme",
+      verifyCopy: "Verify File Integrity",
+      verifyCopyDesc: "Calculate checksums after copy (slower but safer)",
+      deleteSource: "Cleanup Source",
+      deleteSourceDesc: "Delete original files after successful link (frees up space)",
+      compression: "NTFS Compression",
+      compressionDesc: "Compress target folder to save disk space",
+      autoAnalyze: "Auto-Analyze",
+      autoAnalyzeDesc: "Automatically check safety when selecting an app",
+      apiKey: "Gemini API Key",
+      apiKeyDesc: "Use your own API key for higher rate limits",
+      save: "Save Changes",
+      cancel: "Cancel"
     }
   },
   zh: {
@@ -89,6 +112,28 @@ export const TRANSLATIONS = {
       btn: "下载安装包 (x64)",
       source: "查看构建说明",
       version: "版本 1.0.0-beta"
+    },
+    settings: {
+      title: "设置",
+      categories: {
+        general: "常规",
+        migration: "迁移行为",
+        ai: "AI 配置"
+      },
+      language: "界面语言",
+      theme: "外观主题",
+      verifyCopy: "验证文件完整性",
+      verifyCopyDesc: "复制后计算校验和（较慢但更安全）",
+      deleteSource: "清理源文件",
+      deleteSourceDesc: "链接成功后删除原始文件（释放空间）",
+      compression: "NTFS 压缩",
+      compressionDesc: "压缩目标文件夹以节省磁盘空间",
+      autoAnalyze: "自动分析",
+      autoAnalyzeDesc: "选中应用时自动检查安全性",
+      apiKey: "Gemini API Key",
+      apiKeyDesc: "使用您自己的 API 密钥以获得更高的速率限制",
+      save: "保存更改",
+      cancel: "取消"
     }
   }
 };

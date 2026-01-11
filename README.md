@@ -23,6 +23,8 @@
 
 ---
 
+<div id="en"></div>
+
 ## 📖 Introduction
 
 **WinLink Migrator** is a modern Windows utility dashboard designed to solve the common "C: Drive Full" problem. It allows users to safely move heavy `AppData` or application folders to a secondary drive while maintaining system compatibility using **Symbolic Links (Junctions)**.
@@ -45,6 +47,31 @@ Unlike traditional tools, WinLink integrates **Google Gemini AI** to analyze the
 *   **Styling**: Tailwind CSS, Lucide React (Icons)
 *   **AI Integration**: Google GenAI SDK (`gemini-3-flash-preview`)
 *   **State Management**: React Hooks
+
+## 📐 System Architecture & Specs
+
+### Core Data Flow
+The application manages its lifecycle through `AppStatus`:
+`READY` -> `ANALYZING` (Gemini AI Check) -> `MOVING` (Execution) -> `MOVED` (Success) or `ERROR`.
+
+The moving process involves granular steps tracked in the UI:
+1.  **MKDIR**: Create destination directory.
+2.  **ROBOCOPY**: Transfer data preserving attributes.
+3.  **MKLINK**: Create Junction point mapping source to destination.
+
+### Directory Structure
+```text
+src/
+├── App.tsx             # Main Application Logic & Layout
+├── types.ts            # TypeScript Definitions (AppFolder, LogEntry)
+├── constants.ts        # Mock Data & Drive Configuration
+├── translations.ts     # i18n Resources (EN/ZH)
+├── services/           # Business Logic
+│   └── geminiService.ts # Google Gemini AI Integration
+└── components/         # UI Components
+    ├── AppCard.tsx      # Application Status Card
+    └── TerminalLog.tsx  # Simulated Terminal Output
+```
 
 ## 🚀 Getting Started
 
@@ -78,26 +105,13 @@ Unlike traditional tools, WinLink integrates **Google Gemini AI** to analyze the
     npm start
     ```
 
-## 🧠 How It Works (Simulation)
-
-Since browsers cannot access the native file system directly, this POC runs in **Simulation Mode**:
-
-1.  **Select App**: Choose a mock application (e.g., Docker, VS Code Extensions).
-2.  **Analyze**: The app sends a prompt to **Gemini AI**: *"Is it safe to move [Folder Name]?"*.
-3.  **Migrate**: The UI simulates the execution of:
-    *   `mkdir "D:\Target\Path"`
-    *   `robocopy "C:\Source" "D:\Target" /E /COPYALL /MOVE`
-    *   `mklink /J "C:\Source" "D:\Target"`
-4.  **Log**: All steps are recorded in the simulated terminal at the bottom.
-
 ## 🔮 Future Roadmap (Native Integration)
 
 To turn this into a fully functional Windows Desktop App:
 
-- [ ] **Electron/Tauri Integration**: Wrap the React app to gain access to Node.js `fs` module or Rust backend.
-- [ ] **Real File System Scanning**: Replace mock data with actual directory scanning of `%APPDATA%`.
-- [ ] **Admin Privileges**: Implement UAC prompting for `mklink` commands.
-- [ ] **Rollback Feature**: Automated restoration if the move fails.
+1.  **File System**: Replace `constants.ts` mock data with Node.js `fs` or Rust `std::fs` to scan real `%APPDATA%`.
+2.  **Command Execution**: Replace `setTimeout` simulations in `App.tsx` with `child_process.exec` (Electron) or `Command` (Tauri).
+3.  **Privileges**: Implement UAC handling, as `mklink` requires administrative privileges on Windows.
 
 ## 🤝 Contributing
 
@@ -129,17 +143,46 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 *   **样式**: Tailwind CSS, Lucide React (图标库)
 *   **AI 服务**: Google GenAI SDK (`gemini-3-flash-preview`)
 
-## 🧠 工作原理 (模拟模式)
+## 📐 系统架构与开发规范
 
-由于浏览器无法直接操作本地文件系统，当前 POC 运行在 **模拟模式** 下：
+### 核心状态流转
+应用通过 `AppStatus` 枚举管理生命周期：
+`READY` (就绪) -> `ANALYZING` (AI 分析中) -> `MOVING` (迁移执行中) -> `MOVED` (成功) 或 `ERROR` (失败)。
 
-1.  **选择应用**：选择一个模拟应用（如 Docker, VS Code 扩展等）。
-2.  **分析**：应用向 **Gemini AI** 发送提示词：*"迁移 [文件夹名] 是否安全？"*。
-3.  **迁移**：UI 模拟执行以下 Windows 命令：
-    *   `mkdir "D:\Target\Path"`
-    *   `robocopy "C:\Source" "D:\Target" /E /COPYALL /MOVE`
-    *   `mklink /J "C:\Source" "D:\Target"`
-4.  **日志**：所有步骤均记录在底部的模拟终端中。
+迁移过程包含以下原子操作步骤：
+1.  **MKDIR**: 创建目标磁盘目录。
+2.  **ROBOCOPY**: 保留属性复制文件数据。
+3.  **MKLINK**: 在原位置创建 Junction 软链指向新位置。
+
+### 项目目录结构
+```text
+src/
+├── App.tsx             # 主应用逻辑与布局
+├── types.ts            # 类型定义 (AppFolder, LogEntry)
+├── constants.ts        # 模拟数据与磁盘配置
+├── translations.ts     # 国际化资源 (中/英)
+├── services/           # 业务逻辑服务
+│   └── geminiService.ts # Google Gemini AI 集成
+└── components/         # UI 组件
+    ├── AppCard.tsx      # 应用状态卡片
+    └── TerminalLog.tsx  # 模拟终端日志
+```
+
+## 🧠 开发指南
+
+### 本地运行
+
+1.  克隆仓库并安装依赖 (`npm install`)。
+2.  配置环境变量 `REACT_APP_API_KEY` 以启用 AI 功能。
+3.  运行 `npm start` 启动开发服务器。
+
+### 生产环境适配 (Native)
+
+若要将本项目打包为可实际使用的 `.exe`，需进行以下改造：
+
+1.  **文件系统**: 使用 Node.js `fs` 模块或 Rust 后端替换 `constants.ts` 中的 Mock 数据，以扫描真实的 `%APPDATA%` 目录。
+2.  **命令执行**: 移除 `App.tsx` 中的 `setTimeout` 模拟逻辑，使用 `child_process.spawn` (Electron) 或 `Command` (Tauri) 执行真实系统命令。
+3.  **权限管理**: 创建符号链接通常需要管理员权限，需在打包应用中处理 UAC 提权逻辑。
 
 ---
 

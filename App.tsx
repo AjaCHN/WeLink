@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { 
   HardDrive, 
   ArrowRightLeft, 
@@ -8,7 +8,6 @@ import {
   CheckCircle2, 
   AlertCircle,
   Play,
-  Search,
   Loader2,
   Check,
   Circle,
@@ -18,56 +17,77 @@ import {
   X,
   Download,
   Github,
-  Package
+  Package,
+  ChevronRight,
+  ShieldAlert
 } from 'lucide-react';
-import { AppFolder, AppStatus, LogEntry, MoveStep, Language } from './types';
+import { AppFolder, AppStatus, LogEntry, MoveStep, Language, AppSettings } from './types';
 import { TRANSLATIONS } from './translations';
 import { MOCK_APPS, TARGET_DRIVES, SOURCE_DRIVES, getAppsForDrive } from './constants';
 import { AppCard } from './components/AppCard';
 import { TerminalLog } from './components/TerminalLog';
+import { SettingsModal } from './components/SettingsModal';
 import { analyzeFolderSafety } from './services/geminiService';
+import { executeMigration, getEnvironmentCapabilities } from './services/systemService';
 
-// Helper component for individual steps
+// Helper component for individual steps with timeline connector
 const ProgressStepItem = ({ 
   status, 
   label, 
-  subtext 
+  subtext,
+  isLast = false
 }: { 
   status: 'pending' | 'active' | 'completed', 
   label: string,
-  subtext?: string
+  subtext?: string,
+  isLast?: boolean
 }) => (
-  <div className={`flex items-start gap-3 p-2 rounded ${status === 'active' ? 'bg-slate-800' : ''}`}>
-    <div className={`mt-0.5 shrink-0`}>
-      {status === 'completed' && <CheckCircle2 size={18} className="text-green-400" />}
-      {status === 'active' && <Loader2 size={18} className="text-blue-400 animate-spin" />}
-      {status === 'pending' && <Circle size={18} className="text-slate-600" />}
+  <div className="flex gap-4 relative">
+    {/* Timeline Line */}
+    {!isLast && (
+      <div className={`absolute left-[11px] top-7 bottom-[-12px] w-[2px] ${
+        status === 'completed' ? 'bg-blue-900/50' : 'bg-slate-800'
+      }`} />
+    )}
+    
+    <div className={`mt-0.5 relative z-10 p-1 rounded-full border-2 transition-all duration-300 ${
+      status === 'completed' ? 'bg-slate-950 border-green-500 text-green-500 shadow-[0_0_10px_rgba(34,197,94,0.2)]' :
+      status === 'active' ? 'bg-slate-950 border-blue-500 text-blue-500 shadow-[0_0_10px_rgba(59,130,246,0.3)]' :
+      'bg-slate-900 border-slate-700 text-slate-700'
+    }`}>
+      {status === 'completed' && <Check size={12} strokeWidth={3} />}
+      {status === 'active' && <Loader2 size={12} className="animate-spin" />}
+      {status === 'pending' && <Circle size={12} className="opacity-0" />} 
     </div>
-    <div className="flex-1">
-      <div className={`text-sm font-medium ${status === 'completed' ? 'text-slate-300' : status === 'active' ? 'text-blue-200' : 'text-slate-500'}`}>
+    
+    <div className={`flex-1 pb-4 transition-opacity duration-300 ${status === 'pending' ? 'opacity-40' : 'opacity-100'}`}>
+      <div className={`text-sm font-semibold ${
+        status === 'completed' ? 'text-green-400' : 
+        status === 'active' ? 'text-blue-400' : 'text-slate-300'
+      }`}>
         {label}
       </div>
-      {subtext && <div className="text-xs text-slate-500 mt-0.5 font-mono">{subtext}</div>}
+      {subtext && <div className="text-xs text-slate-500 mt-1 font-mono bg-black/20 px-2 py-1 rounded w-fit">{subtext}</div>}
     </div>
   </div>
 );
 
 // Simulated Windows Title Bar
 const TitleBar = ({ title }: { title: string }) => (
-  <div className="h-8 bg-slate-900 flex items-center justify-between select-none w-full border-b border-slate-800" style={{ WebkitAppRegion: 'drag' } as any}>
-    <div className="px-4 flex items-center gap-2 text-xs text-slate-400">
-      <div className="w-3 h-3 rounded-full bg-blue-500/50" />
-      <span>{title}</span>
+  <div className="h-9 bg-slate-950/80 backdrop-blur-md flex items-center justify-between select-none w-full border-b border-slate-800/50 z-50" style={{ WebkitAppRegion: 'drag' } as any}>
+    <div className="px-4 flex items-center gap-3 text-xs font-medium text-slate-400">
+      <div className="w-3.5 h-3.5 rounded-full bg-gradient-to-br from-blue-500 to-blue-600 shadow-sm" />
+      <span className="tracking-wide opacity-80">{title}</span>
     </div>
     <div className="flex h-full" style={{ WebkitAppRegion: 'no-drag' } as any}>
-      <button className="w-10 h-full flex items-center justify-center hover:bg-slate-800 text-slate-400 transition-colors">
-        <Minus size={14} />
+      <button className="w-12 h-full flex items-center justify-center hover:bg-slate-800 text-slate-500 hover:text-white transition-colors">
+        <Minus size={16} />
       </button>
-      <button className="w-10 h-full flex items-center justify-center hover:bg-slate-800 text-slate-400 transition-colors">
-        <Square size={12} />
+      <button className="w-12 h-full flex items-center justify-center hover:bg-slate-800 text-slate-500 hover:text-white transition-colors">
+        <Square size={14} />
       </button>
-      <button className="w-10 h-full flex items-center justify-center hover:bg-red-500 hover:text-white text-slate-400 transition-colors">
-        <X size={14} />
+      <button className="w-12 h-full flex items-center justify-center hover:bg-red-500 hover:text-white text-slate-500 transition-colors">
+        <X size={16} />
       </button>
     </div>
   </div>
@@ -84,6 +104,25 @@ export default function App() {
   const [isScanning, setIsScanning] = useState(false);
   const [customPath, setCustomPath] = useState('');
   const [showDownloadModal, setShowDownloadModal] = useState(false);
+  
+  // Settings State
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [settings, setSettings] = useState<AppSettings>({
+    language: 'zh',
+    verifyCopy: true,
+    deleteSource: false,
+    autoAnalyze: false,
+    geminiApiKey: '',
+    theme: 'dark',
+    compression: false
+  });
+
+  const envInfo = getEnvironmentCapabilities();
+
+  // Sync lang state with settings
+  useEffect(() => {
+    setLang(settings.language);
+  }, [settings.language]);
 
   const t = TRANSLATIONS[lang];
 
@@ -97,7 +136,9 @@ export default function App() {
   }, []);
 
   const toggleLanguage = () => {
-    setLang(prev => prev === 'en' ? 'zh' : 'en');
+    const newLang = lang === 'en' ? 'zh' : 'en';
+    setLang(newLang);
+    setSettings(prev => ({ ...prev, language: newLang }));
   };
 
   const handleSourceDriveChange = async (newDrive: string) => {
@@ -117,15 +158,24 @@ export default function App() {
   const handleSelectApp = (id: string) => {
     if (isProcessing) return;
     setSelectedAppId(id);
+    
+    // Auto-analyze trigger
+    if (settings.autoAnalyze) {
+      const app = apps.find(a => a.id === id);
+      if (app && !app.aiAnalysis && app.status === AppStatus.Ready) {
+        setTimeout(() => handleAnalyze(id), 100);
+      }
+    }
   };
 
-  const handleAnalyze = async () => {
-    if (!selectedAppId) return;
+  const handleAnalyze = async (overrideId?: string) => {
+    const id = overrideId || selectedAppId;
+    if (!id) return;
     
     setIsProcessing(true);
-    setApps(prev => prev.map(a => a.id === selectedAppId ? { ...a, status: AppStatus.Analyzing } : a));
+    setApps(prev => prev.map(a => a.id === id ? { ...a, status: AppStatus.Analyzing } : a));
     
-    const app = apps.find(a => a.id === selectedAppId);
+    const app = apps.find(a => a.id === id);
     if (app) {
       addLog(`Initiating AI safety check for ${app.name}...`, 'info');
       
@@ -134,7 +184,7 @@ export default function App() {
       addLog(`Gemini Analysis Complete: Risk Level - ${analysis.riskLevel}`, analysis.isSafe ? 'success' : 'warning');
       addLog(`Recommendation: ${analysis.recommendedAction}`, 'info');
 
-      setApps(prev => prev.map(a => a.id === selectedAppId ? { 
+      setApps(prev => prev.map(a => a.id === id ? { 
         ...a, 
         status: AppStatus.Ready,
         aiAnalysis: analysis.reason,
@@ -151,43 +201,32 @@ export default function App() {
     const app = apps.find(a => a.id === selectedAppId);
     if (!app) return;
 
-    const targetPath = `${targetDrive}\\${app.name}`;
-
     setIsProcessing(true);
-    // Start Moving
+    
+    // Start Moving State
     setApps(prev => prev.map(a => a.id === selectedAppId ? { ...a, status: AppStatus.Moving, moveStep: MoveStep.MkDir } : a));
 
-    addLog(`Starting migration sequence for ${app.name}`, 'info');
-    
-    try {
-      // Step 1: Create Directory
-      addLog(`mkdir "${targetPath}"`, 'command');
-      await new Promise(r => setTimeout(r, 1200)); 
-      
-      // Step 2: Robocopy
-      setApps(prev => prev.map(a => a.id === selectedAppId ? { ...a, moveStep: MoveStep.Robocopy } : a));
-      addLog(`robocopy "${app.sourcePath}" "${targetPath}" /E /COPYALL /MOVE`, 'command');
-      addLog(`Transferring ${app.size} of data...`, 'info');
-      await new Promise(r => setTimeout(r, 2500));
-      
-      // Step 3: Link
-      setApps(prev => prev.map(a => a.id === selectedAppId ? { ...a, moveStep: MoveStep.MkLink } : a));
-      addLog(`mklink /J "${app.sourcePath}" "${targetPath}"`, 'command');
-      await new Promise(r => setTimeout(r, 1000));
-      
-      addLog(`Junction created successfully -> ${targetPath}`, 'success');
+    addLog(`Starting migration sequence for ${app.name} (${envInfo.platform})`, 'info');
 
-      // Finish
+    // Execute via Service (Handles both Native and Web)
+    const success = await executeMigration(
+      app, 
+      targetDrive, 
+      settings,
+      addLog,
+      (step) => setApps(prev => prev.map(a => a.id === selectedAppId ? { ...a, moveStep: step } : a))
+    );
+
+    if (success) {
       setApps(prev => prev.map(a => a.id === selectedAppId ? { ...a, status: AppStatus.Moved, moveStep: MoveStep.Done } : a));
       addLog(`Migration of ${app.name} completed successfully.`, 'success');
       setSelectedAppId(null);
-
-    } catch (e) {
-      addLog(`Migration failed: ${e}`, 'error');
+    } else {
       setApps(prev => prev.map(a => a.id === selectedAppId ? { ...a, status: AppStatus.Error } : a));
-    } finally {
-      setIsProcessing(false);
+      addLog(`Migration failed. Check console for details.`, 'error');
     }
+
+    setIsProcessing(false);
   };
 
   const handleAddCustom = () => {
@@ -219,51 +258,58 @@ export default function App() {
   const selectedApp = apps.find(a => a.id === selectedAppId);
 
   return (
-    <div className="flex flex-col h-screen bg-slate-950 text-slate-200 font-sans overflow-hidden">
+    <div className="flex flex-col h-screen bg-slate-950 text-slate-200 font-sans overflow-hidden antialiased">
       {/* Native-style Title Bar */}
       <TitleBar title={t.appName} />
       
       <div className="flex flex-1 overflow-hidden relative">
         {/* Sidebar */}
-        <div className="w-64 bg-slate-900 border-r border-slate-800 flex flex-col shrink-0">
-          <div className="p-6 flex items-center gap-3 border-b border-slate-800">
-            <div className="bg-blue-600 p-2 rounded-lg">
-              <ArrowRightLeft size={20} className="text-white" />
+        <div className="w-72 bg-slate-900/50 backdrop-blur border-r border-slate-800 flex flex-col shrink-0 z-20">
+          <div className="p-6 pb-4">
+            <div className="flex items-center gap-3 mb-6">
+              <div className="bg-gradient-to-tr from-blue-600 to-indigo-600 p-2.5 rounded-xl shadow-lg shadow-blue-900/20">
+                <ArrowRightLeft size={20} className="text-white" />
+              </div>
+              <div>
+                <h1 className="font-bold text-lg tracking-tight text-white leading-tight">WinLink</h1>
+                <p className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">Migration Tool</p>
+              </div>
             </div>
-            <div>
-              <h1 className="font-bold text-lg tracking-tight">WinLink</h1>
-              <p className="text-xs text-slate-500">{t.appSubtitle}</p>
-            </div>
-          </div>
 
-          {/* Source Drive Selector */}
-          <div className="p-4 border-b border-slate-800 bg-slate-900/50">
-            <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-2">
-              <Search size={12} />
-              {t.sourceDrive}
+            {/* Source Drive Selector */}
+            <div className="bg-slate-950/50 rounded-xl p-1 border border-slate-800/50">
+              <div className="flex items-center gap-2 px-3 py-2 text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">
+                <HardDrive size={12} />
+                {t.sourceDrive}
+              </div>
+              <div className="px-1 pb-1">
+                <select 
+                  value={sourceDrive}
+                  onChange={(e) => handleSourceDriveChange(e.target.value)}
+                  disabled={isScanning || isProcessing}
+                  className="w-full bg-slate-800 border border-slate-700/50 rounded-lg p-2.5 text-sm text-slate-200 outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/20 transition-all appearance-none cursor-pointer hover:bg-slate-800/80 disabled:opacity-50"
+                >
+                  {SOURCE_DRIVES.map(d => (
+                    <option key={d} value={d}>{d}</option>
+                  ))}
+                </select>
+              </div>
             </div>
-            <select 
-              value={sourceDrive}
-              onChange={(e) => handleSourceDriveChange(e.target.value)}
-              disabled={isScanning || isProcessing}
-              className="w-full bg-slate-800 border border-slate-700 rounded p-2 text-sm text-slate-300 outline-none focus:border-blue-500 transition-colors disabled:opacity-50"
-            >
-              {SOURCE_DRIVES.map(d => (
-                <option key={d} value={d}>{d}</option>
-              ))}
-            </select>
           </div>
           
-          <div className="flex-1 overflow-y-auto p-4 space-y-2 relative">
-            <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">{t.detectedApps}</div>
+          <div className="flex-1 overflow-y-auto px-4 pb-2 space-y-2 relative scrollbar-thin scrollbar-thumb-slate-700 scrollbar-track-transparent">
+            <div className="sticky top-0 bg-slate-900/95 backdrop-blur z-10 py-2 border-b border-slate-800/50 mb-2 flex justify-between items-center">
+              <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">{t.detectedApps}</span>
+              <span className="text-[10px] bg-slate-800 text-slate-400 px-1.5 py-0.5 rounded-full">{apps.length}</span>
+            </div>
             
             {isScanning ? (
-               <div className="flex flex-col items-center justify-center py-8 text-slate-500 gap-2">
-                 <div className="animate-spin rounded-full h-5 w-5 border-2 border-slate-600 border-t-blue-500" />
-                 <span className="text-xs">{t.scanning}</span>
+               <div className="flex flex-col items-center justify-center py-12 text-slate-500 gap-3">
+                 <div className="animate-spin rounded-full h-6 w-6 border-2 border-slate-700 border-t-blue-500" />
+                 <span className="text-xs font-medium tracking-wide">{t.scanning}</span>
                </div>
             ) : apps.length === 0 ? (
-               <div className="text-center py-8 text-slate-600 text-xs italic">
+               <div className="text-center py-12 text-slate-600 text-xs italic">
                  {t.noApps}
                </div>
             ) : (
@@ -279,12 +325,12 @@ export default function App() {
             )}
           </div>
 
-          <div className="p-4 border-t border-slate-800 bg-slate-900/50">
-            <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">{t.targetDrive}</div>
+          <div className="p-4 border-t border-slate-800 bg-gradient-to-t from-slate-900 to-slate-900/50">
+            <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2 ml-1">{t.targetDrive}</div>
             <select 
               value={targetDrive}
               onChange={(e) => setTargetDrive(e.target.value)}
-              className="w-full bg-slate-800 border border-slate-700 rounded p-2 text-sm text-slate-300 outline-none focus:border-blue-500"
+              className="w-full bg-slate-800 hover:bg-slate-700/80 border border-slate-700 rounded-lg p-2.5 text-sm text-slate-300 outline-none focus:border-blue-500 transition-colors cursor-pointer"
             >
               {TARGET_DRIVES.map(d => (
                 <option key={d} value={d}>{d}</option>
@@ -294,218 +340,266 @@ export default function App() {
         </div>
 
         {/* Main Content */}
-        <div className="flex-1 flex flex-col min-w-0">
+        <div className="flex-1 flex flex-col min-w-0 bg-gradient-to-br from-slate-950 to-slate-900">
           {/* Header */}
-          <header className="h-14 border-b border-slate-800 flex items-center justify-between px-8 bg-slate-900/30 backdrop-blur-sm shrink-0">
-            <div className="flex items-center gap-2 text-slate-400 text-sm">
-              <Cpu size={16} />
-              <span>{t.systemReady}</span>
-              <span className="mx-2">•</span>
-              <span>Windows 11 (23H2)</span>
+          <header className="h-16 border-b border-slate-800/50 flex items-center justify-between px-8 bg-slate-950/40 backdrop-blur-sm shrink-0 z-10">
+            <div className="flex items-center gap-3 text-slate-400 text-sm">
+              <div className="w-8 h-8 rounded-lg bg-slate-900 border border-slate-800 flex items-center justify-center text-blue-400 shadow-sm">
+                <Cpu size={16} />
+              </div>
+              <div className="flex flex-col">
+                <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Environment</span>
+                <span className="text-slate-200">
+                  {envInfo.isNative ? 'Native (Tauri)' : 'Web (Simulation)'} • {envInfo.version}
+                </span>
+              </div>
             </div>
             <div className="flex items-center gap-3">
                <button 
                 onClick={() => setShowDownloadModal(true)}
-                className="flex items-center gap-2 px-3 py-1.5 bg-blue-600/10 hover:bg-blue-600/20 text-blue-400 rounded text-xs font-medium transition-colors border border-blue-600/20"
+                className="flex items-center gap-2 px-4 py-2 bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white rounded-lg text-xs font-medium transition-all border border-slate-800 hover:border-slate-700 shadow-sm"
                >
                  <Download size={14} />
                  <span>{t.download}</span>
                </button>
                <button 
                 onClick={toggleLanguage}
-                className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 rounded text-xs font-medium text-slate-300 transition-colors border border-slate-700"
+                className="flex items-center gap-2 px-4 py-2 bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white rounded-lg text-xs font-medium transition-all border border-slate-800 hover:border-slate-700 shadow-sm"
                >
                  <Languages size={14} />
-                 <span>{lang === 'en' ? 'English' : '中文'}</span>
+                 <span>{lang === 'en' ? 'EN' : '中'}</span>
                </button>
-               <button className="p-2 hover:bg-slate-800 rounded-full text-slate-400 transition-colors">
-                 <Settings size={20} />
+               <button 
+                 onClick={() => setIsSettingsOpen(true)}
+                 className="w-9 h-9 flex items-center justify-center hover:bg-slate-800 rounded-lg text-slate-400 transition-colors"
+               >
+                 <Settings size={18} />
                </button>
             </div>
           </header>
 
           {/* Dashboard Grid */}
-          <div className="flex-1 p-8 grid grid-cols-12 gap-8 overflow-y-auto">
+          <div className="flex-1 p-6 grid grid-cols-12 gap-6 overflow-y-auto scrollbar-thin scrollbar-thumb-slate-800">
             
             {/* Left Column: List & Actions */}
             <div className="col-span-7 flex flex-col gap-6">
               
-              {/* Custom Path Input */}
-              <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 shadow-sm">
-                 <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2 block">
-                   {t.addPath}
-                 </label>
-                 <div className="flex gap-2">
-                   <div className="relative flex-1">
-                     <FolderInput size={18} className="absolute left-3 top-3 text-slate-500" />
-                     <input 
-                      type="text" 
-                      value={customPath}
-                      onChange={(e) => setCustomPath(e.target.value)}
-                      placeholder="C:\Users\Admin\AppData\..."
-                      className="w-full bg-slate-800 border border-slate-700 rounded-lg py-2.5 pl-10 pr-4 text-sm text-slate-200 focus:outline-none focus:border-blue-500 transition-all placeholder:text-slate-600"
-                     />
+              {/* Custom Path Input - Compact */}
+              <div className="bg-slate-900/40 border border-slate-800/60 rounded-xl p-1.5 shadow-sm flex items-center gap-2">
+                 <div className="relative flex-1">
+                   <div className="absolute left-3 top-2.5 text-slate-500">
+                     <FolderInput size={16} />
                    </div>
-                   <button 
-                    onClick={handleAddCustom}
-                    className="bg-slate-800 hover:bg-slate-700 text-slate-300 px-4 rounded-lg font-medium text-sm transition-colors border border-slate-700"
-                   >
-                     {t.add}
-                   </button>
+                   <input 
+                    type="text" 
+                    value={customPath}
+                    onChange={(e) => setCustomPath(e.target.value)}
+                    placeholder={t.addPath}
+                    className="w-full bg-transparent border-none rounded-lg py-2 pl-9 pr-4 text-sm text-slate-200 focus:ring-0 placeholder:text-slate-600"
+                   />
                  </div>
+                 <button 
+                  onClick={handleAddCustom}
+                  className="bg-slate-800 hover:bg-slate-700 text-slate-300 px-4 py-2 rounded-lg font-medium text-xs transition-colors border border-slate-700 shadow-sm"
+                 >
+                   {t.add}
+                 </button>
               </div>
 
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                   <h2 className="text-lg font-semibold text-white">{t.appData}</h2>
-                   <span className="text-sm text-slate-500">{apps.length} {t.itemsFound}</span>
+              {/* Empty state or Chart could go here, for now keeping list logic implies list is in sidebar */}
+              <div className="bg-gradient-to-br from-indigo-900/10 to-blue-900/5 border border-slate-800/50 rounded-2xl p-8 flex flex-col items-center justify-center text-center h-[200px] shadow-inner">
+                <div className="bg-slate-900/50 p-4 rounded-full mb-4 border border-slate-800">
+                  <Package size={32} className="text-blue-500" />
                 </div>
-                <div className="grid grid-cols-1 gap-4">
-                  {apps.map(app => (
-                    <AppCard 
-                      key={app.id} 
-                      app={app} 
-                      isSelected={selectedAppId === app.id} 
-                      onSelect={handleSelectApp}
-                      lang={lang}
-                    />
-                  ))}
-                </div>
+                <h3 className="text-lg font-medium text-slate-200 mb-1">Ready to Optimize</h3>
+                <p className="text-slate-500 text-sm max-w-xs">Select an application from the sidebar to analyze its portability and migrate data safely.</p>
+              </div>
+
+              {/* Terminal Log */}
+              <div className="flex-1 flex flex-col min-h-[300px]">
+                <TerminalLog logs={logs} />
               </div>
             </div>
 
-            {/* Right Column: Inspector & Console */}
-            <div className="col-span-5 flex flex-col gap-6 h-full min-h-[500px]">
-              
-              {/* Action Panel */}
-              <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-lg relative overflow-hidden transition-all duration-300">
+            {/* Right Column: Inspector Panel */}
+            <div className="col-span-5 flex flex-col h-full">
+              <div className="bg-slate-900/80 backdrop-blur border border-slate-800 rounded-2xl p-6 shadow-xl relative overflow-hidden transition-all duration-300 flex flex-col h-full">
                  {!selectedApp ? (
-                   <div className="h-40 flex flex-col items-center justify-center text-slate-500 gap-2">
-                     <HardDrive size={32} className="opacity-20" />
-                     <p>{t.selectPrompt}</p>
+                   <div className="flex-1 flex flex-col items-center justify-center text-slate-600 gap-4 opacity-50">
+                     <HardDrive size={48} strokeWidth={1} />
+                     <p className="text-sm font-medium tracking-wide">{t.selectPrompt}</p>
                    </div>
                  ) : (
-                   <div className="flex flex-col h-full gap-4">
-                      <div className="flex items-start justify-between">
-                        <div>
-                          <h3 className="text-xl font-bold text-white mb-1">{selectedApp.name}</h3>
-                          <p className="text-sm text-slate-400 font-mono text-[10px] break-all">
-                            {selectedApp.sourcePath}
-                          </p>
+                   <div className="flex flex-col h-full animate-in fade-in slide-in-from-bottom-4 duration-500">
+                      {/* App Header */}
+                      <div className="flex items-start justify-between mb-6">
+                        <div className="flex items-center gap-4">
+                            <div className="w-12 h-12 bg-slate-800 rounded-xl flex items-center justify-center text-blue-400 border border-slate-700 shadow-lg">
+                                <Package size={24} />
+                            </div>
+                            <div>
+                                <h3 className="text-xl font-bold text-white leading-tight">{selectedApp.name}</h3>
+                                <p className="text-xs text-slate-400 font-mono mt-1 break-all max-w-[200px] opacity-70">
+                                    {selectedApp.sourcePath}
+                                </p>
+                            </div>
                         </div>
-                        <div className="text-right">
-                          <div className="text-2xl font-light text-blue-400">{selectedApp.size}</div>
-                          <div className="text-xs text-slate-500">{t.estSpace}</div>
+                        <div className="text-right bg-slate-950/50 px-3 py-2 rounded-lg border border-slate-800">
+                          <div className="text-xl font-light text-blue-400 tabular-nums">{selectedApp.size}</div>
+                          <div className="text-[10px] uppercase font-bold text-slate-600">{t.estSpace}</div>
                         </div>
                       </div>
 
-                      <div className="h-px bg-slate-800 my-2" />
+                      {/* Path Visualizer */}
+                      <div className="bg-black/20 rounded-lg p-3 mb-6 border border-slate-800/50 flex items-center gap-2 text-xs font-mono text-slate-400 overflow-hidden">
+                        <span className="shrink-0 text-slate-500">ORIGIN</span>
+                        <ChevronRight size={14} className="text-slate-600" />
+                        <span className="truncate text-blue-300">{targetDrive}\{selectedApp.name}</span>
+                      </div>
 
-                      <div className="space-y-3">
-                         <div className="flex items-center justify-between text-sm">
-                           <span className="text-slate-400">{t.targetDest}</span>
-                           <span className="text-blue-300 font-mono">{targetDrive}\{selectedApp.name}</span>
-                         </div>
-                         
+                      {/* Status / Actions Area */}
+                      <div className="flex-1">
                          {selectedApp.status === AppStatus.Moving ? (
-                           <div className="bg-slate-950/50 rounded-lg p-3 border border-slate-800 space-y-2">
-                             <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">{t.steps.progress}</div>
-                             <ProgressStepItem 
-                               status={getStepStatus(selectedApp.moveStep, MoveStep.MkDir)}
-                               label={t.steps.mkdir}
-                             />
-                             <ProgressStepItem 
-                               status={getStepStatus(selectedApp.moveStep, MoveStep.Robocopy)}
-                               label={t.steps.copy}
-                               subtext="robocopy /MOVE /E"
-                             />
-                             <ProgressStepItem 
-                               status={getStepStatus(selectedApp.moveStep, MoveStep.MkLink)}
-                               label={t.steps.link}
-                               subtext="mklink /J"
-                             />
+                           <div className="space-y-1">
+                             <div className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4 pl-1">{t.steps.progress}</div>
+                             <div className="pl-2 border-l border-slate-800 space-y-2">
+                                <ProgressStepItem 
+                                  status={getStepStatus(selectedApp.moveStep, MoveStep.MkDir)}
+                                  label={t.steps.mkdir}
+                                />
+                                <ProgressStepItem 
+                                  status={getStepStatus(selectedApp.moveStep, MoveStep.Robocopy)}
+                                  label={t.steps.copy}
+                                  subtext="robocopy /MOVE /E"
+                                />
+                                <ProgressStepItem 
+                                  status={getStepStatus(selectedApp.moveStep, MoveStep.MkLink)}
+                                  label={t.steps.link}
+                                  subtext="mklink /J"
+                                  isLast={true}
+                                />
+                             </div>
                            </div>
                          ) : selectedApp.status === AppStatus.Moved ? (
-                           <div className="p-4 bg-green-500/10 border border-green-500/20 rounded-lg flex items-center gap-3">
-                             <CheckCircle2 className="text-green-500" />
-                             <span className="text-green-400 font-medium">{t.migrated}</span>
+                           <div className="h-full flex flex-col items-center justify-center p-6 bg-green-500/5 border border-green-500/20 rounded-2xl text-center gap-4">
+                             <div className="w-16 h-16 bg-green-500/20 rounded-full flex items-center justify-center">
+                                <CheckCircle2 size={32} className="text-green-500" />
+                             </div>
+                             <div>
+                                <h4 className="text-lg font-bold text-green-400">{t.migrated}</h4>
+                                <p className="text-sm text-green-500/60 mt-2">Symbolic link created successfully.</p>
+                             </div>
                            </div>
                          ) : (
-                           <>
-                             {!selectedApp.aiAnalysis ? (
-                                <button 
-                                  onClick={handleAnalyze}
-                                  disabled={isProcessing}
-                                  className="w-full py-3 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-slate-300 font-medium transition-all flex items-center justify-center gap-2"
-                                >
-                                  {isProcessing && selectedApp.status === AppStatus.Analyzing ? (
-                                    <div className="animate-spin rounded-full h-4 w-4 border-2 border-slate-400 border-t-transparent" />
-                                  ) : (
-                                    <Cpu size={16} />
-                                  )}
-                                  {t.analyzeBtn}
-                                </button>
-                             ) : (
-                               <div className="grid grid-cols-2 gap-3">
-                                 <button 
-                                   disabled className="py-3 bg-slate-800/50 border border-slate-700/50 rounded-lg text-slate-500 cursor-not-allowed flex items-center justify-center gap-2"
-                                 >
-                                   <CheckCircle2 size={16} /> {t.analyzed}
-                                 </button>
-                                 <button 
-                                   onClick={handleMove}
-                                   disabled={isProcessing}
-                                   className="py-3 bg-blue-600 hover:bg-blue-500 rounded-lg text-white font-medium transition-all shadow-lg shadow-blue-900/20 flex items-center justify-center gap-2"
-                                 >
-                                   {isProcessing ? (
-                                    <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent" />
-                                   ) : <Play size={16} fill="currentColor" />}
-                                   {t.moveBtn}
-                                 </button>
-                               </div>
+                           <div className="space-y-4">
+                             {/* Analysis Result */}
+                             {selectedApp.aiAnalysis && (
+                                <div className={`p-4 rounded-xl border ${
+                                    selectedApp.safetyScore && selectedApp.safetyScore > 80 
+                                    ? 'bg-green-500/5 border-green-500/20' 
+                                    : 'bg-yellow-500/5 border-yellow-500/20'
+                                }`}>
+                                    <div className="flex items-center gap-2 mb-2">
+                                        {selectedApp.safetyScore && selectedApp.safetyScore > 80 ? (
+                                            <CheckCircle2 size={16} className="text-green-400" />
+                                        ) : (
+                                            <ShieldAlert size={16} className="text-yellow-400" />
+                                        )}
+                                        <span className={`text-sm font-bold ${
+                                            selectedApp.safetyScore && selectedApp.safetyScore > 80 ? 'text-green-400' : 'text-yellow-400'
+                                        }`}>AI Analysis Result</span>
+                                    </div>
+                                    <p className="text-xs text-slate-300 leading-relaxed opacity-90">
+                                        {selectedApp.aiAnalysis}
+                                    </p>
+                                </div>
                              )}
-                           </>
+
+                             <div className="pt-4 mt-auto">
+                                {!selectedApp.aiAnalysis ? (
+                                    <button 
+                                      onClick={() => handleAnalyze()}
+                                      disabled={isProcessing}
+                                      className="w-full py-4 bg-gradient-to-r from-slate-800 to-slate-700 hover:from-slate-700 hover:to-slate-600 border border-slate-600 rounded-xl text-white font-medium transition-all shadow-lg flex items-center justify-center gap-3 group relative overflow-hidden"
+                                    >
+                                      <div className="absolute inset-0 bg-gradient-to-r from-blue-500/20 to-purple-500/20 opacity-0 group-hover:opacity-100 transition-opacity" />
+                                      {isProcessing && selectedApp.status === AppStatus.Analyzing ? (
+                                        <Loader2 size={18} className="animate-spin text-blue-400" />
+                                      ) : (
+                                        <Cpu size={18} className="text-blue-400 group-hover:scale-110 transition-transform" />
+                                      )}
+                                      <span className="relative">{t.analyzeBtn}</span>
+                                    </button>
+                                ) : (
+                                   <div className="grid grid-cols-1 gap-3">
+                                     <button 
+                                       onClick={handleMove}
+                                       disabled={isProcessing}
+                                       className="w-full py-4 bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 rounded-xl text-white font-bold transition-all shadow-[0_0_20px_rgba(37,99,235,0.3)] hover:shadow-[0_0_30px_rgba(37,99,235,0.5)] flex items-center justify-center gap-3 active:scale-[0.98]"
+                                     >
+                                       {isProcessing ? (
+                                        <Loader2 size={20} className="animate-spin" />
+                                       ) : <Play size={20} fill="currentColor" />}
+                                       {t.moveBtn}
+                                     </button>
+                                   </div>
+                                 )}
+                             </div>
+                           </div>
                          )}
                       </div>
                    </div>
                  )}
               </div>
-
-              {/* Terminal Log */}
-              <div className="flex-1 min-h-[300px]">
-                <TerminalLog logs={logs} />
-              </div>
-
             </div>
           </div>
         </div>
         
-        {/* Disclaimer Modal */}
-        <div className="fixed bottom-4 right-4 max-w-sm bg-slate-800/90 backdrop-blur border border-slate-700 p-4 rounded-lg shadow-2xl z-40 text-xs text-slate-400">
-          <div className="flex gap-2 items-start">
-            <AlertCircle size={16} className="shrink-0 text-blue-400 mt-0.5" />
-            <p>
-              <span className="font-bold text-slate-200">{t.simulationMode}:</span> {t.simulationDesc}
-            </p>
+        {/* Settings Modal */}
+        <SettingsModal 
+          isOpen={isSettingsOpen} 
+          onClose={() => setIsSettingsOpen(false)} 
+          settings={settings}
+          onSave={setSettings}
+          lang={lang}
+        />
+
+        {/* Disclaimer Toast */}
+        {!envInfo.isNative && (
+        <div className="fixed bottom-6 right-6 max-w-sm bg-slate-900/80 backdrop-blur-md border border-slate-700/50 p-4 rounded-xl shadow-2xl z-40 text-xs text-slate-400 animate-in slide-in-from-bottom-10 fade-in duration-700">
+          <div className="flex gap-3 items-start">
+            <div className="p-1 bg-blue-500/10 rounded-full">
+                <AlertCircle size={16} className="shrink-0 text-blue-400" />
+            </div>
+            <div>
+                <p className="font-semibold text-slate-200 mb-1">{t.simulationMode}</p>
+                <p className="opacity-80 leading-relaxed">{t.simulationDesc}</p>
+            </div>
           </div>
         </div>
+        )}
 
         {/* Download Modal */}
         {showDownloadModal && (
-          <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-             <div className="bg-slate-900 border border-slate-700 w-full max-w-md rounded-2xl shadow-2xl overflow-hidden">
-                <div className="h-32 bg-gradient-to-br from-blue-900 to-slate-900 flex items-center justify-center">
-                  <Package size={64} className="text-blue-400 opacity-80" />
+          <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4 animate-in fade-in duration-300">
+             <div className="bg-slate-900 border border-slate-700 w-full max-w-md rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-300">
+                <div className="h-40 bg-gradient-to-br from-blue-900 via-slate-900 to-slate-950 flex items-center justify-center relative overflow-hidden">
+                  <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-20" />
+                  <Package size={80} className="text-white opacity-10 absolute top-[-20px] right-[-20px]" />
+                  <div className="text-center z-10">
+                    <div className="w-16 h-16 bg-blue-600 rounded-2xl mx-auto flex items-center justify-center shadow-lg shadow-blue-600/30 mb-3">
+                        <Download size={32} className="text-white" />
+                    </div>
+                    <h2 className="text-xl font-bold text-white">{t.downloadModal.title}</h2>
+                  </div>
                 </div>
                 <div className="p-8">
-                  <div className="flex justify-between items-start mb-4">
-                     <div>
-                       <h2 className="text-xl font-bold text-white mb-1">{t.downloadModal.title}</h2>
-                       <p className="text-xs text-slate-500 font-mono">{t.downloadModal.version}</p>
-                     </div>
+                  <div className="flex justify-between items-center mb-6">
+                     <span className="text-xs font-bold bg-slate-800 text-blue-400 px-2 py-1 rounded border border-slate-700">{t.downloadModal.version}</span>
+                     <span className="text-xs text-slate-500">x64 / ARM64</span>
                   </div>
                   
-                  <p className="text-slate-300 text-sm leading-relaxed mb-6">
+                  <p className="text-slate-300 text-sm leading-relaxed mb-8 text-center">
                     {t.downloadModal.desc}
                   </p>
 
@@ -516,7 +610,7 @@ export default function App() {
                         setTimeout(() => addLog('Error: Build artifact not found. Please clone repository and build with Electron.', 'error'), 1000);
                         setShowDownloadModal(false);
                       }}
-                      className="w-full py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-bold flex items-center justify-center gap-2 transition-colors shadow-lg shadow-blue-900/20"
+                      className="w-full py-3.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-bold flex items-center justify-center gap-2 transition-all shadow-lg shadow-blue-900/20 active:scale-[0.98]"
                     >
                       <Download size={18} />
                       {t.downloadModal.btn}
@@ -524,7 +618,7 @@ export default function App() {
                     
                     <button 
                       onClick={() => setShowDownloadModal(false)}
-                      className="w-full py-3 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg font-medium flex items-center justify-center gap-2 transition-colors border border-slate-700"
+                      className="w-full py-3.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-medium flex items-center justify-center gap-2 transition-colors border border-slate-700"
                     >
                       <Github size={18} />
                       {t.downloadModal.source}
@@ -534,9 +628,9 @@ export default function App() {
                   <div className="mt-6 text-center">
                     <button 
                       onClick={() => setShowDownloadModal(false)} 
-                      className="text-slate-500 text-xs hover:text-slate-300"
+                      className="text-slate-500 text-xs hover:text-slate-300 transition-colors"
                     >
-                      Close / 关闭
+                      Close Window
                     </button>
                   </div>
                 </div>

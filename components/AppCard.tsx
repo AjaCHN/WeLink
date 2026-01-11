@@ -1,7 +1,7 @@
 import React from 'react';
 import { AppFolder, AppStatus, MoveStep, Language } from '../types';
 import { TRANSLATIONS } from '../translations';
-import { Folder, ShieldCheck, AlertTriangle, Database, Loader2 } from 'lucide-react';
+import { Folder, ShieldCheck, AlertTriangle, Database, Loader2, ArrowRight } from 'lucide-react';
 
 interface AppCardProps {
   app: AppFolder;
@@ -13,13 +13,13 @@ interface AppCardProps {
 export const AppCard: React.FC<AppCardProps> = ({ app, isSelected, onSelect, lang }) => {
   const t = TRANSLATIONS[lang];
 
-  const getStatusColor = (status: AppStatus) => {
+  const getStatusStyles = (status: AppStatus) => {
     switch (status) {
-      case AppStatus.Moved: return 'border-green-500/50 bg-green-500/5';
-      case AppStatus.Error: return 'border-red-500/50 bg-red-500/5';
-      case AppStatus.Moving: return 'border-blue-500/50 bg-blue-500/5';
-      case AppStatus.Analyzing: return 'border-purple-500/50 bg-purple-500/5';
-      default: return 'border-slate-700 hover:border-slate-500 bg-slate-800';
+      case AppStatus.Moved: return 'border-green-500/20 bg-green-500/5 hover:border-green-500/40';
+      case AppStatus.Error: return 'border-red-500/20 bg-red-500/5 hover:border-red-500/40';
+      case AppStatus.Moving: return 'border-blue-500/20 bg-blue-500/5 hover:border-blue-500/40';
+      case AppStatus.Analyzing: return 'border-purple-500/20 bg-purple-500/5 hover:border-purple-500/40';
+      default: return 'border-transparent bg-slate-800/40 hover:bg-slate-800 hover:border-slate-700';
     }
   };
 
@@ -36,58 +36,73 @@ export const AppCard: React.FC<AppCardProps> = ({ app, isSelected, onSelect, lan
     <div 
       onClick={() => app.status === AppStatus.Ready ? onSelect(app.id) : null}
       className={`
-        relative p-4 rounded-lg border transition-all cursor-pointer group
-        ${getStatusColor(app.status)}
-        ${isSelected ? 'ring-2 ring-blue-500 border-blue-500 bg-slate-800' : ''}
+        relative p-3 rounded-xl border transition-all duration-200 cursor-pointer group
+        ${getStatusStyles(app.status)}
+        ${isSelected ? '!bg-blue-600/10 !border-blue-500 shadow-[0_0_15px_rgba(37,99,235,0.1)]' : 'hover:scale-[1.02]'}
       `}
     >
-      <div className="flex items-start justify-between mb-2">
-        <div className="flex items-center gap-3">
-          <div className={`p-2 rounded-md ${isSelected ? 'bg-blue-500/20 text-blue-400' : 'bg-slate-700 text-slate-400'}`}>
-            <Folder size={20} />
+      <div className="flex items-start justify-between gap-3">
+        {/* Icon */}
+        <div className={`
+          w-10 h-10 rounded-lg flex items-center justify-center shrink-0 transition-colors
+          ${isSelected ? 'bg-blue-500 text-white' : 'bg-slate-700/50 text-slate-400 group-hover:bg-slate-700 group-hover:text-slate-200'}
+        `}>
+          <Folder size={20} fill={isSelected ? "currentColor" : "none"} />
+        </div>
+
+        {/* Info */}
+        <div className="flex-1 min-w-0 pt-0.5">
+          <div className="flex justify-between items-center mb-0.5">
+            <h3 className={`font-medium text-sm truncate ${isSelected ? 'text-blue-100' : 'text-slate-200'}`}>
+              {app.name}
+            </h3>
+            {app.status === AppStatus.Moved && (
+               <span className="text-[10px] bg-green-500/20 text-green-400 px-1.5 py-0.5 rounded font-bold">MOVED</span>
+            )}
           </div>
-          <div>
-            <h3 className="font-semibold text-slate-100">{app.name}</h3>
-            <p className="text-xs text-slate-400 font-mono truncate max-w-[200px]" title={app.sourcePath}>
-              {app.sourcePath}
-            </p>
+          
+          <p className="text-[10px] text-slate-500 font-mono truncate opacity-80" title={app.sourcePath}>
+            {app.sourcePath}
+          </p>
+
+          <div className="flex items-center gap-2 mt-2">
+            <div className="flex items-center gap-1 text-[10px] font-medium text-slate-400 bg-slate-900/30 px-1.5 py-0.5 rounded border border-slate-700/30">
+              <Database size={10} />
+              <span>{app.size}</span>
+            </div>
+
+            {app.aiAnalysis && (
+               <div className={`flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border ${
+                 app.safetyScore && app.safetyScore > 80 
+                 ? 'bg-green-500/10 text-green-400 border-green-500/20' 
+                 : 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20'
+               }`}>
+                  {app.safetyScore && app.safetyScore > 80 ? <ShieldCheck size={10} /> : <AlertTriangle size={10} />}
+                  <span>{app.safetyScore}% Safe</span>
+               </div>
+            )}
           </div>
         </div>
-        <div className="flex items-center gap-1 text-xs text-slate-400 bg-slate-900/50 px-2 py-1 rounded">
-          <Database size={12} />
-          <span>{app.size}</span>
-        </div>
+
+        {/* Selection Indicator Arrow (Only on hover if not selected) */}
+        {!isSelected && app.status === AppStatus.Ready && (
+            <div className="absolute right-3 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 -translate-x-2 group-hover:translate-x-0 transition-all text-slate-500">
+                <ArrowRight size={16} />
+            </div>
+        )}
       </div>
 
-      {app.aiAnalysis && (
-        <div className="mt-3 p-2 bg-slate-900/50 rounded text-xs border border-slate-700/50">
-           <div className="flex items-center gap-2 mb-1">
-             {app.safetyScore && app.safetyScore > 80 ? (
-               <ShieldCheck size={14} className="text-green-400" />
-             ) : (
-               <AlertTriangle size={14} className="text-yellow-400" />
-             )}
-             <span className="font-bold text-slate-300">{t.aiAnalysis}</span>
-           </div>
-           <p className="text-slate-400 leading-relaxed">{app.aiAnalysis}</p>
-        </div>
-      )}
-
-      {/* Status Overlay */}
-      {app.status === AppStatus.Moved && (
-        <div className="absolute top-2 right-2">
-          <span className="bg-green-500 text-slate-900 text-[10px] font-bold px-2 py-0.5 rounded-full">
-            {t.status.moved}
-          </span>
+      {/* Progress Bar for Moving State */}
+      {app.status === AppStatus.Moving && (
+        <div className="mt-3 bg-slate-900/50 rounded-full h-1.5 w-full overflow-hidden flex">
+          <div className="h-full bg-blue-500 animate-pulse w-2/3 rounded-full" />
         </div>
       )}
       
       {app.status === AppStatus.Moving && (
-        <div className="absolute top-2 right-2 flex items-center gap-1">
-          <Loader2 size={10} className="animate-spin text-blue-400" />
-          <span className="bg-blue-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">
-            {getMovingLabel(app.moveStep)}
-          </span>
+        <div className="absolute top-[-4px] right-[-4px] flex items-center gap-1 bg-blue-600 text-white text-[9px] font-bold px-2 py-0.5 rounded-full shadow-lg z-10">
+          <Loader2 size={8} className="animate-spin" />
+          {getMovingLabel(app.moveStep)}
         </div>
       )}
     </div>

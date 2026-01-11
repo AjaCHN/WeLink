@@ -1,3 +1,4 @@
+
 export enum AppStatus {
   Ready = 'READY',
   Analyzing = 'ANALYZING',
@@ -32,4 +33,14 @@ export interface LogEntry {
   timestamp: string;
   message: string;
   type: 'info' | 'success' | 'warning' | 'error' | 'command';
+}
+
+export interface AppSettings {
+  language: Language;
+  verifyCopy: boolean;
+  deleteSource: boolean; // dangerous in real app, simulated here
+  autoAnalyze: boolean;
+  geminiApiKey: string;
+  theme: 'dark' | 'light' | 'system';
+  compression: boolean;
 }
