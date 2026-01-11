@@ -281,8 +281,8 @@ export const executeMigration = async (
     const safeLogFile = logFile.replace(/'/g, "''");
 
     // Construct Robocopy arguments
-    // /LOG: writes status to file. /TEE outputs to console (for debug)
-    let robocopyArgs = `/MOVE /E /COPYALL /NDL /NJH /NJS /LOG:"${safeLogFile}" /TEE`;
+    // Use /E (Copy) instead of /MOVE so we can control the delete logic based on settings
+    let robocopyArgs = `/E /COPYALL /NDL /NJH /NJS /LOG:"${safeLogFile}" /TEE`;
     
     if (settings.verifyCopy) {
         onLog("Config: Verification enabled (/V)", 'info');
@@ -302,15 +302,18 @@ export const executeMigration = async (
         compact /c /s /i "$target" | Out-Null
         ` : ''}
 
-        # Robocopy
+        # Robocopy (Copy Phase)
         Write-Host "ROBOCOPY_START"
         $proc = Start-Process robocopy -ArgumentList "\`"$source\`" \`"$target\`" ${robocopyArgs}" -Wait -PassThru -NoNewWindow
         
         if ($proc.ExitCode -ge 8) { throw "Robocopy failed code $($proc.ExitCode)" }
 
-        # Cleanup Source
+        # Handle Source Folder (Delete or Rename based on settings)
         if (Test-Path $source) { 
-           Remove-Item -Path $source -Force -Recurse 
+           ${settings.deleteSource 
+             ? 'Remove-Item -Path $source -Force -Recurse' 
+             : 'Rename-Item -Path $source -NewName "$($source)_BAK"'
+           }
         }
 
         # Mklink
@@ -410,7 +413,7 @@ export const executeMigration = async (
     
     // Simulate Progress
     onStatusChange(MoveStep.Robocopy);
-    onLog(`robocopy "${app.sourcePath}" "${targetPath}" /MOVE ${settings.verifyCopy ? '/V' : ''}`, 'command');
+    onLog(`robocopy "${app.sourcePath}" "${targetPath}" /E ${settings.verifyCopy ? '/V' : ''}`, 'command');
     
     const mockFiles = [
         "data.db", "assets/texture.png", "config/settings.json", "bin/executable.exe", 
@@ -426,6 +429,13 @@ export const executeMigration = async (
             });
         }
     }
+
+    if (settings.deleteSource) {
+      onLog(`rmdir /S /Q "${app.sourcePath}"`, 'command');
+    } else {
+      onLog(`rename "${app.sourcePath}" "${app.name}_BAK"`, 'command');
+    }
+    await new Promise(r => setTimeout(r, 500));
 
     onStatusChange(MoveStep.MkLink);
     onLog(`mklink /J "${app.sourcePath}" "${targetPath}"`, 'command');

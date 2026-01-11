@@ -21,6 +21,7 @@ export enum MoveStep {
 }
 
 export type Language = 'en' | 'zh';
+export type Theme = 'dark' | 'light';
 
 export interface ProgressDetails {
   currentFile: string;
@@ -51,9 +52,9 @@ export interface LogEntry {
 
 export interface AppSettings {
   language: Language;
+  theme: Theme;
   verifyCopy: boolean;
   deleteSource: boolean; // dangerous in real app, simulated here
   autoAnalyze: boolean;
-  theme: 'dark' | 'light' | 'system';
   compression: boolean;
 }
