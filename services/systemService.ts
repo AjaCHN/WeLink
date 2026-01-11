@@ -38,6 +38,13 @@ const encodePowerShell = (str: string): string => {
 
 // --- CORE UTILITIES ---
 
+export const getEnvironmentCapabilities = () => {
+  return {
+    isNative: isTauri(),
+    version: '1.0.0-beta'
+  };
+};
+
 /**
  * Calculates the real size of a folder using PowerShell
  */
