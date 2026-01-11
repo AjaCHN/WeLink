@@ -165,4 +165,12 @@ export const executeMigration = async (
 };
 
 /**
- * Checks
+ * Checks if the environment is capable of real file operations
+ */
+export const getEnvironmentCapabilities = () => {
+  return {
+    isNative: isTauri(),
+    platform: isTauri() ? 'Windows (Native)' : 'Web (Simulation)',
+    version: '1.0.0'
+  };
+};
