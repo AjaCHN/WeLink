@@ -1,23 +1,24 @@
-import path from 'path';
-import { defineConfig, loadEnv } from 'vite';
+import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
-export default defineConfig(({ mode }) => {
-    const env = loadEnv(mode, '.', '');
-    return {
-      server: {
-        port: 3000,
-        host: '0.0.0.0',
-      },
-      plugins: [react()],
-      define: {
-        'process.env.API_KEY': JSON.stringify(env.GEMINI_API_KEY),
-        'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY)
-      },
-      resolve: {
-        alias: {
-          '@': path.resolve(__dirname, '.'),
-        }
-      }
-    };
+// https://vitejs.dev/config/
+export default defineConfig({
+  plugins: [react()],
+  // Tauri expects a fixed port, fail if that port is not available
+  server: {
+    port: 3000,
+    strictPort: true,
+  },
+  // to make use of `TAURI_PLATFORM` and other env variables
+  envPrefix: ['VITE_', 'TAURI_'],
+  build: {
+    // Tauri supports es2021
+    target: process.env.TAURI_PLATFORM == 'windows' ? 'chrome105' : 'safari13',
+    // don't minify for debug builds
+    minify: !process.env.TAURI_DEBUG ? 'esbuild' : false,
+    // produce sourcemaps for debug builds
+    sourcemap: !!process.env.TAURI_DEBUG,
+    // Ensure output goes to 'build' folder as specified in tauri.conf.json
+    outDir: 'build' 
+  },
 });

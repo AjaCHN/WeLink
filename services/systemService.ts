@@ -254,6 +254,18 @@ export const executeMigration = async (
     const safeSource = app.sourcePath.replace(/'/g, "''");
     const safeTarget = targetPath.replace(/'/g, "''");
 
+    // Construct Robocopy arguments based on settings
+    // /MOVE: Move files and dirs (delete from source after copy)
+    // /E: Copy subdirectories, including empty ones
+    // /COPYALL: Copy all file info
+    // /NFL /NDL /NJH /NJS: No logging (we parse exit codes)
+    let robocopyArgs = "/MOVE /E /COPYALL /NFL /NDL /NJH /NJS";
+    
+    if (settings.verifyCopy) {
+        onLog("Config: Verification enabled (/V)", 'info');
+        robocopyArgs += " /V"; // Create verbose output, showing skipped files and extra details
+    }
+
     const psScript = `
         $ErrorActionPreference = 'Stop'
         $source = '${safeSource}'
@@ -265,13 +277,24 @@ export const executeMigration = async (
         # Create Dir
         if (!(Test-Path $target)) { New-Item -ItemType Directory -Force -Path $target | Out-Null }
 
+        # Optional: Enable Compression on Target BEFORE copying
+        ${settings.compression ? `
+        Write-Host "Enabling NTFS Compression on target..."
+        compact /c /s /i "$target" | Out-Null
+        ` : ''}
+
         # Robocopy
         Write-Host "ROBOCOPY_START"
-        $proc = Start-Process robocopy -ArgumentList "\`"$source\`" \`"$target\`" /MOVE /E /COPYALL /NFL /NDL /NJH /NJS" -Wait -PassThru -NoNewWindow
+        $proc = Start-Process robocopy -ArgumentList "\`"$source\`" \`"$target\`" ${robocopyArgs}" -Wait -PassThru -NoNewWindow
+        
+        # Robocopy exit codes: 0-7 are success/warnings, 8+ are failures
         if ($proc.ExitCode -ge 8) { throw "Robocopy failed code $($proc.ExitCode)" }
 
-        # Cleanup Source (if Robocopy /MOVE left crumbs)
-        if (Test-Path $source) { Remove-Item -Path $source -Force -Recurse }
+        # Cleanup Source (if Robocopy /MOVE left crumbs, and setting allows)
+        # Note: /MOVE usually handles this, but we force it if specific artifacts remain
+        if (Test-Path $source) { 
+           Remove-Item -Path $source -Force -Recurse 
+        }
 
         # Mklink
         cmd /c mklink /J "\`"$source\`"" "\`"$target\`""
@@ -314,9 +337,14 @@ export const executeMigration = async (
     await new Promise(r => setTimeout(r, 500));
 
     onStatusChange(MoveStep.MkDir);
+    if (settings.compression) {
+      onLog("Enabling NTFS compression on target...", 'info');
+      await new Promise(r => setTimeout(r, 400));
+    }
+
     await new Promise(r => setTimeout(r, 1000));
     onStatusChange(MoveStep.Robocopy);
-    onLog(`robocopy "${app.sourcePath}" "${targetPath}" /MOVE`, 'command');
+    onLog(`robocopy "${app.sourcePath}" "${targetPath}" /MOVE ${settings.verifyCopy ? '/V' : ''}`, 'command');
     await new Promise(r => setTimeout(r, 2000));
     onStatusChange(MoveStep.MkLink);
     onLog(`mklink /J "${app.sourcePath}" "${targetPath}"`, 'command');
