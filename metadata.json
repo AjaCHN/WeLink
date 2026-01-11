@@ -1,0 +1,5 @@
+{
+  "name": "WinLink Migrator",
+  "description": "A Windows utility dashboard to manage moving application data to different drives using symbolic links, featuring AI-powered safety analysis.",
+  "requestFramePermissions": []
+}
