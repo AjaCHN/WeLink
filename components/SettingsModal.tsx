@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { X, Globe, HardDrive, Cpu, ShieldCheck, Zap, Trash2, FileArchive } from 'lucide-react';
 import { AppSettings, Language } from '../types';
@@ -184,18 +183,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, s
                    onChange={(v) => setLocalSettings({...localSettings, autoAnalyze: v})}
                    icon={Zap}
                 />
-                
-                <div className="space-y-2 pt-2 border-t border-slate-800/50">
-                  <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">{t.apiKey}</label>
-                  <input 
-                    type="password"
-                    placeholder="AIzaSy..."
-                    value={localSettings.geminiApiKey}
-                    onChange={(e) => setLocalSettings({...localSettings, geminiApiKey: e.target.value})}
-                    className="w-full bg-slate-800 border border-slate-700 rounded-lg p-2.5 text-sm text-slate-200 outline-none focus:border-blue-500 transition-colors placeholder:text-slate-600 font-mono"
-                  />
-                  <p className="text-xs text-slate-500">{t.apiKeyDesc}</p>
-                </div>
               </div>
             )}
           </div>

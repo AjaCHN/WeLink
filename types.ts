@@ -40,7 +40,6 @@ export interface AppSettings {
   verifyCopy: boolean;
   deleteSource: boolean; // dangerous in real app, simulated here
   autoAnalyze: boolean;
-  geminiApiKey: string;
   theme: 'dark' | 'light' | 'system';
   compression: boolean;
 }

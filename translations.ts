@@ -63,8 +63,6 @@ export const TRANSLATIONS = {
       compressionDesc: "Compress target folder to save disk space",
       autoAnalyze: "Auto-Analyze",
       autoAnalyzeDesc: "Automatically check safety when selecting an app",
-      apiKey: "Gemini API Key",
-      apiKeyDesc: "Use your own API key for higher rate limits",
       save: "Save Changes",
       cancel: "Cancel"
     }
@@ -130,8 +128,6 @@ export const TRANSLATIONS = {
       compressionDesc: "压缩目标文件夹以节省磁盘空间",
       autoAnalyze: "自动分析",
       autoAnalyzeDesc: "选中应用时自动检查安全性",
-      apiKey: "Gemini API Key",
-      apiKeyDesc: "使用您自己的 API 密钥以获得更高的速率限制",
       save: "保存更改",
       cancel: "取消"
     }

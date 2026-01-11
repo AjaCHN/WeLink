@@ -1,4 +1,5 @@
 import { LogEntry, AppFolder, AppStatus, MoveStep, AppSettings } from '../types';
+import { MOCK_APPS } from '../constants';
 
 // Declare global window type for Tauri
 declare global {
@@ -40,6 +41,76 @@ const encodePowerShell = (str: string): string => {
 };
 
 /**
+ * Scans the system AppData folder for folders.
+ * Uses PowerShell in Native mode, returns MOCK_APPS in Web mode.
+ */
+export const scanSystemApps = async (driveLabel: string): Promise<AppFolder[]> => {
+  if (!isTauri()) {
+    console.warn("Web Mode: Returning Mock Data");
+    // Simulate network/disk delay
+    await new Promise(r => setTimeout(r, 800));
+    return MOCK_APPS;
+  }
+
+  try {
+    // Only scanning C: (AppData) is supported specifically in this demo for safety
+    // For other drives, we might need a recursive search which is slow.
+    if (!driveLabel.startsWith("C")) {
+       return [];
+    }
+
+    // PowerShell script to list directories in Roaming AppData
+    // We limit depth to 1 to just get application folders
+    const psScript = `
+      $ErrorActionPreference = 'Stop'
+      $path = [Environment]::GetFolderPath("ApplicationData")
+      
+      $folders = Get-ChildItem -Path $path -Directory | Select-Object -First 50
+      
+      $result = @()
+      foreach ($item in $folders) {
+          $result += @{
+              id = $item.Name
+              name = $item.Name
+              sourcePath = $item.FullName
+              # Calculating real folder size is slow in PS, putting placeholder
+              size = "Unknown" 
+              status = "READY"
+          }
+      }
+      $result | ConvertTo-Json -Compress
+    `;
+
+    const encodedCommand = encodePowerShell(psScript);
+    const cmd = new window.__TAURI__!.shell.Command('powershell', [
+        '-NoProfile', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', encodedCommand
+    ]);
+
+    const output = await cmd.execute();
+    
+    if (output.code === 0) {
+      const data = JSON.parse(output.stdout);
+      // Ensure data is array (ConvertTo-Json can return single object if only 1 result)
+      const arrayData = Array.isArray(data) ? data : [data];
+      
+      return arrayData.map((item: any) => ({
+        id: item.id,
+        name: item.name,
+        sourcePath: item.sourcePath,
+        size: 'Calc on Select', // Calculation is heavy, do it later or separate
+        status: AppStatus.Ready
+      }));
+    } else {
+      console.error("Scan failed", output.stderr);
+      return [];
+    }
+  } catch (e) {
+    console.error("Tauri invocation failed", e);
+    return [];
+  }
+};
+
+/**
  * Executes the migration process.
  * If in Tauri: Runs an elevated PowerShell script to handle Robocopy and Mklink (triggers UAC).
  * If in Web: Runs simulation with timeouts.
@@ -65,8 +136,9 @@ export const executeMigration = async (
 
       // Script logic:
       // 1. Create Dir
-      // 2. Robocopy (Exit code < 8 is success)
-      // 3. Mklink (Junction)
+      // 2. Robocopy (Exit code < 8 is standard success)
+      // 3. Remove Source Dir (Critical: mklink fails if directory exists)
+      // 4. Mklink (Junction)
       const psScript = `
         $ErrorActionPreference = 'Stop'
         $source = '${safeSource}'
@@ -83,6 +155,13 @@ export const executeMigration = async (
         if ($proc.ExitCode -ge 8) {
             Write-Error "Robocopy failed with code $($proc.ExitCode)"
             exit 1
+        }
+
+        # Critical Step: Robocopy /MOVE might leave the empty source root folder.
+        # We MUST remove it, otherwise mklink will say "Cannot create a file when that file already exists".
+        if (Test-Path $source) {
+            Write-Host "Cleaning up source root for junction creation..."
+            Remove-Item -Path $source -Force -Recurse
         }
 
         Write-Host "Creating junction..."
@@ -156,6 +235,7 @@ export const executeMigration = async (
 
     // Step 3: MkLink
     onStatusChange(MoveStep.MkLink);
+    onLog(`rmdir "${app.sourcePath}" (Simulated cleanup)`, 'command');
     onLog(`mklink /J "${app.sourcePath}" "${targetPath}"`, 'command');
     await new Promise(r => setTimeout(r, 1000));
     

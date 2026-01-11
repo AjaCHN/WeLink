@@ -23,12 +23,12 @@ import {
 } from 'lucide-react';
 import { AppFolder, AppStatus, LogEntry, MoveStep, Language, AppSettings } from './types';
 import { TRANSLATIONS } from './translations';
-import { MOCK_APPS, TARGET_DRIVES, SOURCE_DRIVES, getAppsForDrive } from './constants';
+import { MOCK_APPS, TARGET_DRIVES, SOURCE_DRIVES } from './constants';
 import { AppCard } from './components/AppCard';
 import { TerminalLog } from './components/TerminalLog';
 import { SettingsModal } from './components/SettingsModal';
 import { analyzeFolderSafety } from './services/geminiService';
-import { executeMigration, getEnvironmentCapabilities } from './services/systemService';
+import { executeMigration, getEnvironmentCapabilities, scanSystemApps } from './services/systemService';
 
 // Helper component for individual steps with timeline connector
 const ProgressStepItem = ({ 
@@ -112,7 +112,6 @@ export default function App() {
     verifyCopy: true,
     deleteSource: false,
     autoAnalyze: false,
-    geminiApiKey: '',
     theme: 'dark',
     compression: false
   });
@@ -123,6 +122,11 @@ export default function App() {
   useEffect(() => {
     setLang(settings.language);
   }, [settings.language]);
+
+  // Initial Scan on Mount
+  useEffect(() => {
+    handleSourceDriveChange(SOURCE_DRIVES[0]);
+  }, []);
 
   const t = TRANSLATIONS[lang];
 
@@ -145,14 +149,19 @@ export default function App() {
     setSourceDrive(newDrive);
     setIsScanning(true);
     setSelectedAppId(null);
+    setApps([]); // Clear previous list
+    
     addLog(`Scanning drive ${newDrive}...`, 'command');
     
-    setTimeout(() => {
-      const foundApps = getAppsForDrive(newDrive);
+    try {
+      const foundApps = await scanSystemApps(newDrive);
       setApps(foundApps);
-      setIsScanning(false);
       addLog(`Scan complete. Found ${foundApps.length} candidates.`, 'success');
-    }, 600);
+    } catch (e) {
+      addLog('Scan failed to complete.', 'error');
+    } finally {
+      setIsScanning(false);
+    }
   };
 
   const handleSelectApp = (id: string) => {
