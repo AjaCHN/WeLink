@@ -140,7 +140,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, s
                           : 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-700'
                         }`}
                       >
-                        {theme}
+                        {theme === 'dark' ? t.themes.dark : theme === 'light' ? t.themes.light : t.themes.system}
                       </button>
                     ))}
                   </div>

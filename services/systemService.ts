@@ -1,4 +1,4 @@
-import { LogEntry, AppFolder, AppStatus, MoveStep, AppSettings } from '../types';
+import { LogEntry, AppFolder, AppStatus, MoveStep, AppSettings, ProgressDetails } from '../types';
 import { MOCK_APPS } from '../constants';
 
 declare global {
@@ -12,6 +12,11 @@ declare global {
           };
         };
       };
+      fs?: {
+        readTextFile: (filePath: string) => Promise<string>;
+        removeFile: (filePath: string) => Promise<void>;
+        exists: (filePath: string) => Promise<boolean>;
+      }
     };
   }
 }
@@ -20,6 +25,7 @@ const isTauri = () => !!window.__TAURI__;
 
 type LogCallback = (msg: string, type: LogEntry['type']) => void;
 type StatusCallback = (step: MoveStep) => void;
+type ProgressCallback = (details: ProgressDetails) => void;
 
 const encodePowerShell = (str: string): string => {
   const arr = new Uint8Array(str.length * 2);
@@ -136,6 +142,20 @@ const checkTargetSpace = async (targetDrive: string, sourcePath: string): Promis
     }
 }
 
+/**
+ * Helper to get AppData path for log storage
+ */
+const getAppDataPath = async (): Promise<string> => {
+    if (!isTauri()) return "";
+    try {
+        const cmd = new window.__TAURI__!.shell.Command('powershell', ['-Command', 'Write-Host $env:APPDATA']);
+        const out = await cmd.execute();
+        return out.stdout.trim();
+    } catch {
+        return "";
+    }
+}
+
 // --- MAIN FUNCTIONS ---
 
 /**
@@ -222,14 +242,15 @@ export const scanSystemApps = async (driveLabel: string): Promise<AppFolder[]> =
 };
 
 /**
- * Migration Logic with Safety Checks
+ * Migration Logic with Safety Checks and Progress Tracking
  */
 export const executeMigration = async (
   app: AppFolder,
   targetDrive: string,
   settings: AppSettings,
   onLog: LogCallback,
-  onStatusChange: StatusCallback
+  onStatusChange: StatusCallback,
+  onProgress?: ProgressCallback
 ): Promise<boolean> => {
   const targetPath = `${targetDrive}\\${app.name}`;
 
@@ -250,20 +271,22 @@ export const executeMigration = async (
         return false;
     }
 
-    // 3. PowerShell Elevation & Execution
+    // 3. Prepare Progress Logging
+    const appData = await getAppDataPath();
+    const logFile = `${appData}\\winlink_move_${Date.now()}.log`;
+    
+    // 4. PowerShell Elevation & Execution
     const safeSource = app.sourcePath.replace(/'/g, "''");
     const safeTarget = targetPath.replace(/'/g, "''");
+    const safeLogFile = logFile.replace(/'/g, "''");
 
-    // Construct Robocopy arguments based on settings
-    // /MOVE: Move files and dirs (delete from source after copy)
-    // /E: Copy subdirectories, including empty ones
-    // /COPYALL: Copy all file info
-    // /NFL /NDL /NJH /NJS: No logging (we parse exit codes)
-    let robocopyArgs = "/MOVE /E /COPYALL /NFL /NDL /NJH /NJS";
+    // Construct Robocopy arguments
+    // /LOG: writes status to file. /TEE outputs to console (for debug)
+    let robocopyArgs = `/MOVE /E /COPYALL /NDL /NJH /NJS /LOG:"${safeLogFile}" /TEE`;
     
     if (settings.verifyCopy) {
         onLog("Config: Verification enabled (/V)", 'info');
-        robocopyArgs += " /V"; // Create verbose output, showing skipped files and extra details
+        robocopyArgs += " /V";
     }
 
     const psScript = `
@@ -271,13 +294,9 @@ export const executeMigration = async (
         $source = '${safeSource}'
         $target = '${safeTarget}'
         
-        # Double check existence to prevent errors
         if (!(Test-Path $source)) { throw "Source folder not found" }
-
-        # Create Dir
         if (!(Test-Path $target)) { New-Item -ItemType Directory -Force -Path $target | Out-Null }
 
-        # Optional: Enable Compression on Target BEFORE copying
         ${settings.compression ? `
         Write-Host "Enabling NTFS Compression on target..."
         compact /c /s /i "$target" | Out-Null
@@ -287,11 +306,9 @@ export const executeMigration = async (
         Write-Host "ROBOCOPY_START"
         $proc = Start-Process robocopy -ArgumentList "\`"$source\`" \`"$target\`" ${robocopyArgs}" -Wait -PassThru -NoNewWindow
         
-        # Robocopy exit codes: 0-7 are success/warnings, 8+ are failures
         if ($proc.ExitCode -ge 8) { throw "Robocopy failed code $($proc.ExitCode)" }
 
-        # Cleanup Source (if Robocopy /MOVE left crumbs, and setting allows)
-        # Note: /MOVE usually handles this, but we force it if specific artifacts remain
+        # Cleanup Source
         if (Test-Path $source) { 
            Remove-Item -Path $source -Force -Recurse 
         }
@@ -304,6 +321,42 @@ export const executeMigration = async (
         onStatusChange(MoveStep.MkDir);
         onLog("Requesting Admin Access for Migration...", 'warning');
         
+        // Start Progress Polling
+        let progressInterval: number | null = null;
+        let processedCount = 0;
+        
+        if (window.__TAURI__?.fs && onProgress) {
+            progressInterval = window.setInterval(async () => {
+                try {
+                    const exists = await window.__TAURI__!.fs!.exists(logFile);
+                    if (exists) {
+                        const content = await window.__TAURI__!.fs!.readTextFile(logFile);
+                        const lines = content.split('\n');
+                        // Robocopy logs "New File" lines
+                        const newFileLines = lines.filter(l => l.includes("New File"));
+                        const currentCount = newFileLines.length;
+                        
+                        if (currentCount > processedCount) {
+                            processedCount = currentCount;
+                            const lastLine = newFileLines[newFileLines.length - 1];
+                            // Extract filename (simple regex approximation)
+                            // "New File <size> <path>"
+                            const match = lastLine.match(/New File\s+\d+\s+(.*)$/);
+                            const currentFile = match ? match[1].trim() : "Processing...";
+                            
+                            onProgress({
+                                filesCopied: processedCount,
+                                currentFile: currentFile
+                            });
+                        }
+                    }
+                } catch (e) {
+                    // Ignore read errors (file locking etc)
+                }
+            }, 500);
+        }
+
+        onStatusChange(MoveStep.Robocopy);
         const cmd = new window.__TAURI__!.shell.Command('powershell', [
             '-WindowStyle', 'Hidden',
             '-Command',
@@ -311,6 +364,17 @@ export const executeMigration = async (
         ]);
 
         const result = await cmd.execute();
+        
+        // Cleanup Polling
+        if (progressInterval) clearInterval(progressInterval);
+        if (window.__TAURI__?.fs) {
+             try {
+                if (await window.__TAURI__!.fs!.exists(logFile)) {
+                   await window.__TAURI__!.fs!.removeFile(logFile);
+                }
+             } catch {}
+        }
+
         if (result.code === 0) {
             onStatusChange(MoveStep.Done);
             return true;
@@ -343,9 +407,26 @@ export const executeMigration = async (
     }
 
     await new Promise(r => setTimeout(r, 1000));
+    
+    // Simulate Progress
     onStatusChange(MoveStep.Robocopy);
     onLog(`robocopy "${app.sourcePath}" "${targetPath}" /MOVE ${settings.verifyCopy ? '/V' : ''}`, 'command');
-    await new Promise(r => setTimeout(r, 2000));
+    
+    const mockFiles = [
+        "data.db", "assets/texture.png", "config/settings.json", "bin/executable.exe", 
+        "logs/today.log", "cache/index.tmp", "user/profile.dat", "lib/core.dll"
+    ];
+    
+    for (let i = 0; i < mockFiles.length; i++) {
+        await new Promise(r => setTimeout(r, 300)); // Delay per file
+        if (onProgress) {
+            onProgress({
+                filesCopied: i + 1,
+                currentFile: mockFiles[i]
+            });
+        }
+    }
+
     onStatusChange(MoveStep.MkLink);
     onLog(`mklink /J "${app.sourcePath}" "${targetPath}"`, 'command');
     await new Promise(r => setTimeout(r, 1000));

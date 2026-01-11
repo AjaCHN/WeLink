@@ -22,6 +22,11 @@ export enum MoveStep {
 
 export type Language = 'en' | 'zh';
 
+export interface ProgressDetails {
+  currentFile: string;
+  filesCopied: number;
+}
+
 export interface AppFolder {
   id: string;
   name: string;
@@ -34,6 +39,7 @@ export interface AppFolder {
   isJunction?: boolean; // New: Is it already a link?
   linkTarget?: string;  // New: Where does it point to?
   isLocal?: boolean;    // New: Is it inside Local AppData?
+  progressDetails?: ProgressDetails; // New: Real-time progress
 }
 
 export interface LogEntry {

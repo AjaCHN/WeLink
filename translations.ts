@@ -29,6 +29,21 @@ export const TRANSLATIONS = {
     simulationMode: "Simulation Mode",
     simulationDesc: "Web browsers cannot execute native mklink or robocopy commands. In production, this UI would use Electron/Tauri.",
     download: "Download Client",
+    environment: {
+      label: "Environment",
+      native: "Native (Tauri)",
+      web: "Web (Simulation)"
+    },
+    dashboard: {
+      readyTitle: "Ready to Optimize",
+      readyDesc: "Select an application from the sidebar to analyze its portability and migrate data safely.",
+      origin: "ORIGIN",
+      filesProcessed: "Files Processed",
+      symlinkActive: "Symbolic link is active.",
+      aiResult: "AI Analysis Result",
+      closeWindow: "Close Window",
+      safe: "Safe"
+    },
     errors: {
       locked: "Folder is locked by a running process.",
       noSpace: "Insufficient disk space on target.",
@@ -41,7 +56,8 @@ export const TRANSLATIONS = {
       moving: "MOVING",
       moved: "MOVED",
       restoring: "RESTORING",
-      unlinking: "UNLINKING"
+      unlinking: "UNLINKING",
+      movedTag: "MOVED"
     },
     steps: {
       mkdir: "Create Directory",
@@ -67,6 +83,11 @@ export const TRANSLATIONS = {
       },
       language: "Language",
       theme: "Theme",
+      themes: {
+        dark: "Dark",
+        light: "Light",
+        system: "System"
+      },
       verifyCopy: "Verify File Integrity",
       verifyCopyDesc: "Calculate checksums after copy (slower but safer)",
       deleteSource: "Cleanup Source",
@@ -106,6 +127,21 @@ export const TRANSLATIONS = {
     simulationMode: "模拟模式",
     simulationDesc: "Web 浏览器无法执行原生的 mklink 或 robocopy 命令。在生产环境中，此界面将配合 Electron/Tauri 使用。",
     download: "下载客户端",
+    environment: {
+      label: "运行环境",
+      native: "原生 (Tauri)",
+      web: "Web (模拟)"
+    },
+    dashboard: {
+      readyTitle: "准备优化",
+      readyDesc: "从侧边栏选择应用以分析可移植性并安全迁移数据。",
+      origin: "源路径",
+      filesProcessed: "已处理文件",
+      symlinkActive: "符号链接已激活，系统运行正常。",
+      aiResult: "AI 分析结果",
+      closeWindow: "关闭窗口",
+      safe: "安全"
+    },
     errors: {
       locked: "文件夹被占用，请关闭相关应用。",
       noSpace: "目标磁盘空间不足。",
@@ -118,7 +154,8 @@ export const TRANSLATIONS = {
       moving: "迁移中",
       moved: "已完成",
       restoring: "还原中",
-      unlinking: "断开链接"
+      unlinking: "断开链接",
+      movedTag: "已迁移"
     },
     steps: {
       mkdir: "创建目标目录",
@@ -144,6 +181,11 @@ export const TRANSLATIONS = {
       },
       language: "界面语言",
       theme: "外观主题",
+      themes: {
+        dark: "深色",
+        light: "浅色",
+        system: "跟随系统"
+      },
       verifyCopy: "验证文件完整性",
       verifyCopyDesc: "复制后计算校验和（较慢但更安全）",
       deleteSource: "清理源文件",
