@@ -106,6 +106,7 @@ export default function App() {
   const [isScanning, setIsScanning] = useState(false);
   const [customPath, setCustomPath] = useState('');
   const [showDownloadModal, setShowDownloadModal] = useState(false);
+  const [showSimBanner, setShowSimBanner] = useState(true);
   
   // Settings State
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -608,78 +609,17 @@ export default function App() {
           lang={lang}
         />
 
-        {!envInfo.isNative && (
-        <div className="fixed bottom-6 right-6 max-w-sm bg-slate-900/80 backdrop-blur-md border border-slate-700/50 p-4 rounded-xl shadow-2xl z-40 text-xs text-slate-400 animate-in slide-in-from-bottom-10 fade-in duration-700">
+        {!envInfo.isNative && showSimBanner && (
+        <div className="fixed bottom-6 right-6 max-w-sm bg-slate-900/80 backdrop-blur-md border border-slate-700/50 p-4 rounded-xl shadow-2xl z-40 text-xs text-slate-400 animate-in slide-in-from-bottom-10 fade-in duration-700 pr-8">
+           <button 
+            onClick={() => setShowSimBanner(false)}
+            className="absolute top-2 right-2 p-1 hover:bg-slate-700/50 rounded-md text-slate-500 hover:text-white transition-colors"
+           >
+             <X size={14} />
+           </button>
           <div className="flex gap-3 items-start">
             <div className="p-1 bg-blue-500/10 rounded-full">
                 <AlertCircle size={16} className="shrink-0 text-blue-400" />
             </div>
             <div>
-                <p className="font-semibold text-slate-200 mb-1">{t.simulationMode}</p>
-                <p className="opacity-80 leading-relaxed">{t.simulationDesc}</p>
-            </div>
-          </div>
-        </div>
-        )}
-
-        {showDownloadModal && (
-          <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4 animate-in fade-in duration-300">
-             <div className="bg-slate-900 border border-slate-700 w-full max-w-md rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-300">
-                <div className="h-40 bg-gradient-to-br from-blue-900 via-slate-900 to-slate-950 flex items-center justify-center relative overflow-hidden">
-                  <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-20" />
-                  <Package size={80} className="text-white opacity-10 absolute top-[-20px] right-[-20px]" />
-                  <div className="text-center z-10">
-                    <div className="w-16 h-16 bg-blue-600 rounded-2xl mx-auto flex items-center justify-center shadow-lg shadow-blue-600/30 mb-3">
-                        <Download size={32} className="text-white" />
-                    </div>
-                    <h2 className="text-xl font-bold text-white">{t.downloadModal.title}</h2>
-                  </div>
-                </div>
-                <div className="p-8">
-                  <div className="flex justify-between items-center mb-6">
-                     <span className="text-xs font-bold bg-slate-800 text-blue-400 px-2 py-1 rounded border border-slate-700">{t.downloadModal.version}</span>
-                     <span className="text-xs text-slate-500">x64 / ARM64</span>
-                  </div>
-                  
-                  <p className="text-slate-300 text-sm leading-relaxed mb-8 text-center">
-                    {t.downloadModal.desc}
-                  </p>
-
-                  <div className="space-y-3">
-                    <button 
-                      onClick={() => {
-                        addLog('Initiating download simulation...', 'command');
-                        setTimeout(() => addLog('Error: Build artifact not found. Please clone repository and build with Electron.', 'error'), 1000);
-                        setShowDownloadModal(false);
-                      }}
-                      className="w-full py-3.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-bold flex items-center justify-center gap-2 transition-all shadow-lg shadow-blue-900/20 active:scale-[0.98]"
-                    >
-                      <Download size={18} />
-                      {t.downloadModal.btn}
-                    </button>
-                    
-                    <button 
-                      onClick={() => setShowDownloadModal(false)}
-                      className="w-full py-3.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-medium flex items-center justify-center gap-2 transition-colors border border-slate-700"
-                    >
-                      <Github size={18} />
-                      {t.downloadModal.source}
-                    </button>
-                  </div>
-
-                  <div className="mt-6 text-center">
-                    <button 
-                      onClick={() => setShowDownloadModal(false)} 
-                      className="text-slate-500 text-xs hover:text-slate-300 transition-colors"
-                    >
-                      Close Window
-                    </button>
-                  </div>
-                </div>
-             </div>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
+                <p className="font-semibold text-slate-200 mb

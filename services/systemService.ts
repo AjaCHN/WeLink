@@ -41,7 +41,7 @@ const encodePowerShell = (str: string): string => {
 export const getEnvironmentCapabilities = () => {
   return {
     isNative: isTauri(),
-    version: '1.0.0-beta'
+    version: '1.0.1-stable'
   };
 };
 
@@ -77,19 +77,18 @@ export const calculateFolderSize = async (path: string): Promise<string> => {
 };
 
 /**
- * Checks if a folder is locked by a process (Primitive check by trying to open/rename logic)
+ * Checks if a folder is locked by a process
  */
 const checkFolderLock = async (path: string): Promise<boolean> => {
   if (!isTauri()) return false;
   // Strategy: Try to rename the folder to itself. If it fails, it's likely in use.
-  // Note: This is a heuristic.
   const psScript = `
     $ErrorActionPreference = 'Stop'
     try {
         $path = '${path}'
         if (!(Test-Path $path)) { return $false }
         
-        # Test basic write access / lock
+        # Test basic write access / lock by creating a dummy file
         $testFile = Join-Path $path "winlink_lock_test.tmp"
         [System.IO.File]::WriteAllText($testFile, "test")
         Remove-Item $testFile -Force
@@ -105,12 +104,36 @@ const checkFolderLock = async (path: string): Promise<boolean> => {
 };
 
 /**
- * Checks available disk space on target
+ * Checks if target drive has enough space for the source folder
  */
-const checkDiskSpace = async (driveLetter: string): Promise<boolean> => {
+const checkTargetSpace = async (targetDrive: string, sourcePath: string): Promise<boolean> => {
     if(!isTauri()) return true;
-    // Just a placeholder for the concept. Assume true for now or implement Get-Volume.
-    return true; 
+
+    try {
+      const psScript = `
+        $ErrorActionPreference = 'SilentlyContinue'
+        $src = '${sourcePath}'
+        $drive = '${targetDrive.substring(0, 2)}' # Extract C: or D:
+        
+        if (!(Test-Path $src)) { return "False" }
+        
+        # Calculate Source Size
+        $srcSize = (Get-ChildItem $src -Recurse -Force | Measure-Object -Property Length -Sum).Sum
+        
+        # Get Free Space
+        $free = (Get-PSDrive -Name $drive[0]).Free
+        
+        # Require 10% buffer
+        if ($free -gt ($srcSize * 1.1)) { "True" } else { "False" }
+      `;
+      
+      const cmd = new window.__TAURI__!.shell.Command('powershell', ['-EncodedCommand', encodePowerShell(psScript)]);
+      const res = await cmd.execute();
+      return res.stdout.trim() === 'True';
+    } catch (e) {
+      console.error("Space check failed", e);
+      return true; // Allow to proceed if check fails, Robocopy will error eventually
+    }
 }
 
 // --- MAIN FUNCTIONS ---
@@ -128,22 +151,22 @@ export const scanSystemApps = async (driveLabel: string): Promise<AppFolder[]> =
   try {
     if (!driveLabel.startsWith("C")) return [];
 
-    // Script scans both Roaming and Local.
-    // Identifies if a folder is a ReparsePoint (Junction/Symlink) and where it points.
     const psScript = `
       $ErrorActionPreference = 'SilentlyContinue'
       
       function Get-Apps ($basePath, $isLocal) {
         if (!(Test-Path $basePath)) { return @() }
-        $folders = Get-ChildItem -Path $basePath -Directory | Select-Object -First 30
+        # Increased limit to 50 to find more apps
+        $folders = Get-ChildItem -Path $basePath -Directory | Select-Object -First 50
         
         $res = @()
         foreach ($item in $folders) {
             $isJunction = $item.Attributes.HasFlag([System.IO.FileAttributes]::ReparsePoint)
             $target = ""
             if ($isJunction) {
-                # Extract target from reparse point
-                $target = (Get-Item $item.FullName).Target
+                try {
+                  $target = (Get-Item $item.FullName).Target
+                } catch { $target = "Unknown" }
             }
             
             $res += @{
@@ -211,15 +234,23 @@ export const executeMigration = async (
   const targetPath = `${targetDrive}\\${app.name}`;
 
   if (isTauri()) {
-    // 1. Safety Checks
-    onLog("Checking folder locks...", 'info');
+    // 1. Check Lock
+    onLog("Safety Check: Checking folder locks...", 'info');
     const isLocked = await checkFolderLock(app.sourcePath);
     if (isLocked) {
-        onLog("CRITICAL: Folder appears to be in use. Close the application first.", 'error');
+        onLog("CRITICAL: Folder appears to be in use. Please close the application first.", 'error');
         return false;
     }
 
-    // 2. PowerShell Elevation
+    // 2. Check Disk Space
+    onLog("Safety Check: Verifying target disk space...", 'info');
+    const hasSpace = await checkTargetSpace(targetDrive, app.sourcePath);
+    if (!hasSpace) {
+        onLog("CRITICAL: Insufficient space on target drive.", 'error');
+        return false;
+    }
+
+    // 3. PowerShell Elevation & Execution
     const safeSource = app.sourcePath.replace(/'/g, "''");
     const safeTarget = targetPath.replace(/'/g, "''");
 
@@ -228,25 +259,27 @@ export const executeMigration = async (
         $source = '${safeSource}'
         $target = '${safeTarget}'
         
-        # 1. Check Space (Simplified)
-        # 2. Create Dir
+        # Double check existence to prevent errors
+        if (!(Test-Path $source)) { throw "Source folder not found" }
+
+        # Create Dir
         if (!(Test-Path $target)) { New-Item -ItemType Directory -Force -Path $target | Out-Null }
 
-        # 3. Robocopy
+        # Robocopy
         Write-Host "ROBOCOPY_START"
         $proc = Start-Process robocopy -ArgumentList "\`"$source\`" \`"$target\`" /MOVE /E /COPYALL /NFL /NDL /NJH /NJS" -Wait -PassThru -NoNewWindow
         if ($proc.ExitCode -ge 8) { throw "Robocopy failed code $($proc.ExitCode)" }
 
-        # 4. Cleanup Source
+        # Cleanup Source (if Robocopy /MOVE left crumbs)
         if (Test-Path $source) { Remove-Item -Path $source -Force -Recurse }
 
-        # 5. Mklink
+        # Mklink
         cmd /c mklink /J "\`"$source\`"" "\`"$target\`""
     `;
 
     try {
         onStatusChange(MoveStep.MkDir);
-        onLog("Requesting Admin Access...", 'warning');
+        onLog("Requesting Admin Access for Migration...", 'warning');
         
         const cmd = new window.__TAURI__!.shell.Command('powershell', [
             '-WindowStyle', 'Hidden',
@@ -259,7 +292,7 @@ export const executeMigration = async (
             onStatusChange(MoveStep.Done);
             return true;
         } else {
-            onLog(`Failed with code ${result.code}`, 'error');
+            onLog(`Migration failed with exit code ${result.code}`, 'error');
             return false;
         }
     } catch (e) {
@@ -269,13 +302,16 @@ export const executeMigration = async (
   } else {
     // Web Simulation
     onLog(`[SIMULATION] Checking locks for ${app.name}...`, 'info');
-    await new Promise(r => setTimeout(r, 1000));
+    await new Promise(r => setTimeout(r, 800));
     
     // Simulate Random Lock Error
     if (Math.random() > 0.9) {
         onLog("Error: Folder is locked by 'Code.exe'", 'error');
         return false;
     }
+
+    onLog(`[SIMULATION] Checking disk space on ${targetDrive}...`, 'info');
+    await new Promise(r => setTimeout(r, 500));
 
     onStatusChange(MoveStep.MkDir);
     await new Promise(r => setTimeout(r, 1000));
@@ -298,8 +334,6 @@ export const executeRestore = async (
     onStatusChange: StatusCallback
 ): Promise<boolean> => {
     
-    // If we don't know the target (e.g. freshly scanned without linkTarget), we might need to resolve it first
-    // But scanSystemApps now returns linkTarget.
     let targetStorage = app.linkTarget;
     
     if (!targetStorage && isTauri()) {
@@ -307,32 +341,38 @@ export const executeRestore = async (
         return false;
     }
 
-    // In web mode, guess a target
     if (!targetStorage && !isTauri()) targetStorage = `D:\\AppData\\${app.name}`;
 
     if (isTauri()) {
-        const safeSource = app.sourcePath.replace(/'/g, "''"); // C:\Users\...\AppData\Roaming\App
-        const safeStorage = targetStorage!.replace(/'/g, "''"); // D:\AppData\App
+        const safeSource = app.sourcePath.replace(/'/g, "''"); // Link Location
+        const safeStorage = targetStorage!.replace(/'/g, "''"); // Real Data Location
 
         const psScript = `
             $ErrorActionPreference = 'Stop'
             $junctionPoint = '${safeSource}'
             $storageDir = '${safeStorage}'
 
+            # SAFETY CHECK 1: Ensure it is actually a junction
+            if (!(Test-Path $junctionPoint)) { throw "Link not found at $junctionPoint" }
+            if (!((Get-Item $junctionPoint).Attributes.HasFlag([System.IO.FileAttributes]::ReparsePoint))) {
+                throw "Target is not a junction point. Aborting to prevent data loss."
+            }
+
+            # SAFETY CHECK 2: Ensure backup data actually exists
+            if (!(Test-Path $storageDir)) { 
+                throw "Backup data not found at $storageDir. Cannot restore." 
+            }
+
             # 1. Remove Junction
             Write-Host "Removing Junction..."
-            if ((Get-Item $junctionPoint).Attributes.HasFlag([System.IO.FileAttributes]::ReparsePoint)) {
-                Remove-Item $junctionPoint -Force
-            } else {
-                throw "Path is not a junction point."
-            }
+            Remove-Item $junctionPoint -Force
 
             # 2. Move files back
             Write-Host "Moving data back..."
             $proc = Start-Process robocopy -ArgumentList "\`"$storageDir\`" \`"$junctionPoint\`" /MOVE /E /COPYALL /NFL /NDL /NJH /NJS" -Wait -PassThru -NoNewWindow
             if ($proc.ExitCode -ge 8) { throw "Robocopy failed code $($proc.ExitCode)" }
             
-            # 3. Cleanup Storage Dir (Robocopy /MOVE leaves empty root)
+            # 3. Cleanup Storage Dir
             if (Test-Path $storageDir) { Remove-Item $storageDir -Force -Recurse }
         `;
 
@@ -351,7 +391,7 @@ export const executeRestore = async (
                 onStatusChange(MoveStep.Done);
                 return true;
             } else {
-                onLog(`Restore failed code ${result.code}`, 'error');
+                onLog(`Restore failed code ${result.code}. Check if backup data exists.`, 'error');
                 return false;
             }
         } catch (e) {
