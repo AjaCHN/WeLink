@@ -17,27 +17,39 @@ export const TRANSLATIONS = {
     itemsFound: "items found",
     selectPrompt: "Select an application to manage",
     estSpace: "Estimated Space",
+    realSpace: "Real Size",
+    calcSize: "Calculating...",
     targetDest: "Target Destination",
     migrated: "Data Migrated & Linked",
     analyzeBtn: "Analyze Safety with Gemini",
     analyzed: "Analyzed",
     moveBtn: "Move & Link",
+    restoreBtn: "Restore to Original",
     aiAnalysis: "AI Analysis",
     simulationMode: "Simulation Mode",
     simulationDesc: "Web browsers cannot execute native mklink or robocopy commands. In production, this UI would use Electron/Tauri.",
     download: "Download Client",
+    errors: {
+      locked: "Folder is locked by a running process.",
+      noSpace: "Insufficient disk space on target.",
+      generic: "Operation failed."
+    },
     status: {
       preparing: "PREPARING",
       copying: "COPYING",
       linking: "LINKING",
       moving: "MOVING",
-      moved: "MOVED"
+      moved: "MOVED",
+      restoring: "RESTORING",
+      unlinking: "UNLINKING"
     },
     steps: {
       mkdir: "Create Directory",
       copy: "Migrate Data",
       link: "Create Junction Link",
-      progress: "Operation Progress"
+      progress: "Operation Progress",
+      unlink: "Remove Junction",
+      restoreCopy: "Restore Data"
     },
     downloadModal: {
       title: "Get WinLink for Windows",
@@ -82,27 +94,39 @@ export const TRANSLATIONS = {
     itemsFound: "个项目",
     selectPrompt: "请选择一个应用进行管理",
     estSpace: "预估占用空间",
+    realSpace: "实际大小",
+    calcSize: "计算中...",
     targetDest: "目标路径",
     migrated: "数据已迁移并链接",
     analyzeBtn: "使用 Gemini 分析安全性",
     analyzed: "已分析",
     moveBtn: "迁移并创建链接",
+    restoreBtn: "还原到原始位置",
     aiAnalysis: "AI 安全分析",
     simulationMode: "模拟模式",
     simulationDesc: "Web 浏览器无法执行原生的 mklink 或 robocopy 命令。在生产环境中，此界面将配合 Electron/Tauri 使用。",
     download: "下载客户端",
+    errors: {
+      locked: "文件夹被占用，请关闭相关应用。",
+      noSpace: "目标磁盘空间不足。",
+      generic: "操作失败。"
+    },
     status: {
       preparing: "准备中",
       copying: "复制中",
       linking: "链接中",
       moving: "迁移中",
-      moved: "已完成"
+      moved: "已完成",
+      restoring: "还原中",
+      unlinking: "断开链接"
     },
     steps: {
       mkdir: "创建目标目录",
       copy: "迁移应用数据",
       link: "创建符号链接 (Junction)",
-      progress: "操作进度"
+      progress: "操作进度",
+      unlink: "移除符号链接",
+      restoreCopy: "还原数据至 C 盘"
     },
     downloadModal: {
       title: "获取 WinLink Windows 版",

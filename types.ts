@@ -4,7 +4,8 @@ export enum AppStatus {
   Analyzing = 'ANALYZING',
   Moving = 'MOVING',
   Moved = 'MOVED',
-  Error = 'ERROR'
+  Error = 'ERROR',
+  Restoring = 'RESTORING' // New status
 }
 
 export enum MoveStep {
@@ -12,7 +13,11 @@ export enum MoveStep {
   MkDir = 'MKDIR',
   Robocopy = 'ROBOCOPY',
   MkLink = 'MKLINK',
-  Done = 'DONE'
+  Done = 'DONE',
+  // Restore Steps
+  Unlink = 'UNLINK',
+  RestoreCopy = 'RESTORE_COPY',
+  CleanTarget = 'CLEAN_TARGET'
 }
 
 export type Language = 'en' | 'zh';
@@ -26,6 +31,9 @@ export interface AppFolder {
   moveStep?: MoveStep;
   safetyScore?: number; // 0-100
   aiAnalysis?: string;
+  isJunction?: boolean; // New: Is it already a link?
+  linkTarget?: string;  // New: Where does it point to?
+  isLocal?: boolean;    // New: Is it inside Local AppData?
 }
 
 export interface LogEntry {

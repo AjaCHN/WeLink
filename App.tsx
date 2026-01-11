@@ -19,7 +19,9 @@ import {
   Github,
   Package,
   ChevronRight,
-  ShieldAlert
+  ShieldAlert,
+  RotateCcw,
+  Undo2
 } from 'lucide-react';
 import { AppFolder, AppStatus, LogEntry, MoveStep, Language, AppSettings } from './types';
 import { TRANSLATIONS } from './translations';
@@ -28,7 +30,7 @@ import { AppCard } from './components/AppCard';
 import { TerminalLog } from './components/TerminalLog';
 import { SettingsModal } from './components/SettingsModal';
 import { analyzeFolderSafety } from './services/geminiService';
-import { executeMigration, getEnvironmentCapabilities, scanSystemApps } from './services/systemService';
+import { executeMigration, executeRestore, getEnvironmentCapabilities, scanSystemApps, calculateFolderSize } from './services/systemService';
 
 // Helper component for individual steps with timeline connector
 const ProgressStepItem = ({ 
@@ -118,12 +120,10 @@ export default function App() {
 
   const envInfo = getEnvironmentCapabilities();
 
-  // Sync lang state with settings
   useEffect(() => {
     setLang(settings.language);
   }, [settings.language]);
 
-  // Initial Scan on Mount
   useEffect(() => {
     handleSourceDriveChange(SOURCE_DRIVES[0]);
   }, []);
@@ -149,7 +149,7 @@ export default function App() {
     setSourceDrive(newDrive);
     setIsScanning(true);
     setSelectedAppId(null);
-    setApps([]); // Clear previous list
+    setApps([]); 
     
     addLog(`Scanning drive ${newDrive}...`, 'command');
     
@@ -164,16 +164,23 @@ export default function App() {
     }
   };
 
-  const handleSelectApp = (id: string) => {
+  const handleSelectApp = async (id: string) => {
     if (isProcessing) return;
     setSelectedAppId(id);
     
-    // Auto-analyze trigger
-    if (settings.autoAnalyze) {
-      const app = apps.find(a => a.id === id);
-      if (app && !app.aiAnalysis && app.status === AppStatus.Ready) {
-        setTimeout(() => handleAnalyze(id), 100);
-      }
+    const app = apps.find(a => a.id === id);
+    if (!app) return;
+
+    // Trigger Real Size Calculation
+    if (app.size === "Calc on Select" || app.size === "Unknown") {
+      setApps(prev => prev.map(a => a.id === id ? { ...a, size: t.calcSize } : a));
+      const realSize = await calculateFolderSize(app.sourcePath);
+      setApps(prev => prev.map(a => a.id === id ? { ...a, size: realSize } : a));
+    }
+    
+    // Auto-analyze
+    if (settings.autoAnalyze && !app.aiAnalysis && app.status === AppStatus.Ready) {
+      setTimeout(() => handleAnalyze(id), 100);
     }
   };
 
@@ -191,8 +198,6 @@ export default function App() {
       const analysis = await analyzeFolderSafety(app.name, app.sourcePath);
       
       addLog(`Gemini Analysis Complete: Risk Level - ${analysis.riskLevel}`, analysis.isSafe ? 'success' : 'warning');
-      addLog(`Recommendation: ${analysis.recommendedAction}`, 'info');
-
       setApps(prev => prev.map(a => a.id === id ? { 
         ...a, 
         status: AppStatus.Ready,
@@ -206,23 +211,15 @@ export default function App() {
 
   const handleMove = async () => {
     if (!selectedAppId) return;
-    
     const app = apps.find(a => a.id === selectedAppId);
     if (!app) return;
 
     setIsProcessing(true);
-    
-    // Start Moving State
     setApps(prev => prev.map(a => a.id === selectedAppId ? { ...a, status: AppStatus.Moving, moveStep: MoveStep.MkDir } : a));
+    addLog(`Starting migration sequence for ${app.name}...`, 'info');
 
-    addLog(`Starting migration sequence for ${app.name} (${envInfo.platform})`, 'info');
-
-    // Execute via Service (Handles both Native and Web)
     const success = await executeMigration(
-      app, 
-      targetDrive, 
-      settings,
-      addLog,
+      app, targetDrive, settings, addLog,
       (step) => setApps(prev => prev.map(a => a.id === selectedAppId ? { ...a, moveStep: step } : a))
     );
 
@@ -232,11 +229,42 @@ export default function App() {
       setSelectedAppId(null);
     } else {
       setApps(prev => prev.map(a => a.id === selectedAppId ? { ...a, status: AppStatus.Error } : a));
-      addLog(`Migration failed. Check console for details.`, 'error');
+      addLog(`Migration failed. Check console.`, 'error');
     }
-
     setIsProcessing(false);
   };
+
+  const handleRestore = async () => {
+    if (!selectedAppId) return;
+    const app = apps.find(a => a.id === selectedAppId);
+    if (!app) return;
+
+    setIsProcessing(true);
+    setApps(prev => prev.map(a => a.id === selectedAppId ? { ...a, status: AppStatus.Restoring, moveStep: MoveStep.Unlink } : a));
+    addLog(`Starting restore sequence for ${app.name}...`, 'info');
+
+    const success = await executeRestore(
+      app, addLog,
+      (step) => setApps(prev => prev.map(a => a.id === selectedAppId ? { ...a, moveStep: step } : a))
+    );
+
+    if (success) {
+      // Upon success, it is now "Ready" again in its original location
+      setApps(prev => prev.map(a => a.id === selectedAppId ? { 
+          ...a, 
+          status: AppStatus.Ready, 
+          moveStep: MoveStep.Idle,
+          isJunction: false,
+          linkTarget: undefined
+      } : a));
+      addLog(`Restoration of ${app.name} completed.`, 'success');
+      setSelectedAppId(null);
+    } else {
+      setApps(prev => prev.map(a => a.id === selectedAppId ? { ...a, status: AppStatus.Error } : a));
+      addLog(`Restore failed.`, 'error');
+    }
+    setIsProcessing(false);
+  }
 
   const handleAddCustom = () => {
     if (!customPath) return;
@@ -245,7 +273,7 @@ export default function App() {
       id: Date.now().toString(),
       name: name,
       sourcePath: customPath,
-      size: 'Calculated...',
+      size: 'Calc on Select',
       status: AppStatus.Ready
     };
     setApps(prev => [...prev, newApp]);
@@ -255,9 +283,21 @@ export default function App() {
 
   const getStepStatus = (current: MoveStep | undefined, stepToCheck: MoveStep) => {
     if (!current) return 'pending';
-    const order = [MoveStep.MkDir, MoveStep.Robocopy, MoveStep.MkLink, MoveStep.Done];
-    const currentIndex = order.indexOf(current);
-    const checkIndex = order.indexOf(stepToCheck);
+    // Define ordering for both Move and Restore
+    const moveOrder = [MoveStep.MkDir, MoveStep.Robocopy, MoveStep.MkLink, MoveStep.Done];
+    const restoreOrder = [MoveStep.Unlink, MoveStep.RestoreCopy, MoveStep.Done];
+    
+    // Check if we are restoring or moving
+    if (current === MoveStep.Unlink || current === MoveStep.RestoreCopy) {
+        const cIdx = restoreOrder.indexOf(current);
+        const sIdx = restoreOrder.indexOf(stepToCheck);
+        if (cIdx > sIdx) return 'completed';
+        if (cIdx === sIdx) return 'active';
+        return 'pending';
+    }
+
+    const currentIndex = moveOrder.indexOf(current);
+    const checkIndex = moveOrder.indexOf(stepToCheck);
     
     if (currentIndex > checkIndex) return 'completed';
     if (currentIndex === checkIndex) return 'active';
@@ -268,7 +308,6 @@ export default function App() {
 
   return (
     <div className="flex flex-col h-screen bg-slate-950 text-slate-200 font-sans overflow-hidden antialiased">
-      {/* Native-style Title Bar */}
       <TitleBar title={t.appName} />
       
       <div className="flex flex-1 overflow-hidden relative">
@@ -285,7 +324,6 @@ export default function App() {
               </div>
             </div>
 
-            {/* Source Drive Selector */}
             <div className="bg-slate-950/50 rounded-xl p-1 border border-slate-800/50">
               <div className="flex items-center gap-2 px-3 py-2 text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">
                 <HardDrive size={12} />
@@ -350,7 +388,6 @@ export default function App() {
 
         {/* Main Content */}
         <div className="flex-1 flex flex-col min-w-0 bg-gradient-to-br from-slate-950 to-slate-900">
-          {/* Header */}
           <header className="h-16 border-b border-slate-800/50 flex items-center justify-between px-8 bg-slate-950/40 backdrop-blur-sm shrink-0 z-10">
             <div className="flex items-center gap-3 text-slate-400 text-sm">
               <div className="w-8 h-8 rounded-lg bg-slate-900 border border-slate-800 flex items-center justify-center text-blue-400 shadow-sm">
@@ -387,13 +424,9 @@ export default function App() {
             </div>
           </header>
 
-          {/* Dashboard Grid */}
           <div className="flex-1 p-6 grid grid-cols-12 gap-6 overflow-y-auto scrollbar-thin scrollbar-thumb-slate-800">
             
-            {/* Left Column: List & Actions */}
             <div className="col-span-7 flex flex-col gap-6">
-              
-              {/* Custom Path Input - Compact */}
               <div className="bg-slate-900/40 border border-slate-800/60 rounded-xl p-1.5 shadow-sm flex items-center gap-2">
                  <div className="relative flex-1">
                    <div className="absolute left-3 top-2.5 text-slate-500">
@@ -415,7 +448,6 @@ export default function App() {
                  </button>
               </div>
 
-              {/* Empty state or Chart could go here, for now keeping list logic implies list is in sidebar */}
               <div className="bg-gradient-to-br from-indigo-900/10 to-blue-900/5 border border-slate-800/50 rounded-2xl p-8 flex flex-col items-center justify-center text-center h-[200px] shadow-inner">
                 <div className="bg-slate-900/50 p-4 rounded-full mb-4 border border-slate-800">
                   <Package size={32} className="text-blue-500" />
@@ -424,13 +456,11 @@ export default function App() {
                 <p className="text-slate-500 text-sm max-w-xs">Select an application from the sidebar to analyze its portability and migrate data safely.</p>
               </div>
 
-              {/* Terminal Log */}
               <div className="flex-1 flex flex-col min-h-[300px]">
                 <TerminalLog logs={logs} />
               </div>
             </div>
 
-            {/* Right Column: Inspector Panel */}
             <div className="col-span-5 flex flex-col h-full">
               <div className="bg-slate-900/80 backdrop-blur border border-slate-800 rounded-2xl p-6 shadow-xl relative overflow-hidden transition-all duration-300 flex flex-col h-full">
                  {!selectedApp ? (
@@ -440,7 +470,6 @@ export default function App() {
                    </div>
                  ) : (
                    <div className="flex flex-col h-full animate-in fade-in slide-in-from-bottom-4 duration-500">
-                      {/* App Header */}
                       <div className="flex items-start justify-between mb-6">
                         <div className="flex items-center gap-4">
                             <div className="w-12 h-12 bg-slate-800 rounded-xl flex items-center justify-center text-blue-400 border border-slate-700 shadow-lg">
@@ -455,38 +484,38 @@ export default function App() {
                         </div>
                         <div className="text-right bg-slate-950/50 px-3 py-2 rounded-lg border border-slate-800">
                           <div className="text-xl font-light text-blue-400 tabular-nums">{selectedApp.size}</div>
-                          <div className="text-[10px] uppercase font-bold text-slate-600">{t.estSpace}</div>
+                          <div className="text-[10px] uppercase font-bold text-slate-600">
+                            {selectedApp.size === t.calcSize ? t.calcSize : t.realSpace}
+                          </div>
                         </div>
                       </div>
 
-                      {/* Path Visualizer */}
                       <div className="bg-black/20 rounded-lg p-3 mb-6 border border-slate-800/50 flex items-center gap-2 text-xs font-mono text-slate-400 overflow-hidden">
                         <span className="shrink-0 text-slate-500">ORIGIN</span>
                         <ChevronRight size={14} className="text-slate-600" />
-                        <span className="truncate text-blue-300">{targetDrive}\{selectedApp.name}</span>
+                        <span className="truncate text-blue-300">
+                             {selectedApp.status === AppStatus.Moved && selectedApp.linkTarget 
+                              ? selectedApp.linkTarget 
+                              : `${targetDrive}\\${selectedApp.name}`}
+                        </span>
                       </div>
 
-                      {/* Status / Actions Area */}
                       <div className="flex-1">
                          {selectedApp.status === AppStatus.Moving ? (
                            <div className="space-y-1">
                              <div className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4 pl-1">{t.steps.progress}</div>
                              <div className="pl-2 border-l border-slate-800 space-y-2">
-                                <ProgressStepItem 
-                                  status={getStepStatus(selectedApp.moveStep, MoveStep.MkDir)}
-                                  label={t.steps.mkdir}
-                                />
-                                <ProgressStepItem 
-                                  status={getStepStatus(selectedApp.moveStep, MoveStep.Robocopy)}
-                                  label={t.steps.copy}
-                                  subtext="robocopy /MOVE /E"
-                                />
-                                <ProgressStepItem 
-                                  status={getStepStatus(selectedApp.moveStep, MoveStep.MkLink)}
-                                  label={t.steps.link}
-                                  subtext="mklink /J"
-                                  isLast={true}
-                                />
+                                <ProgressStepItem status={getStepStatus(selectedApp.moveStep, MoveStep.MkDir)} label={t.steps.mkdir} />
+                                <ProgressStepItem status={getStepStatus(selectedApp.moveStep, MoveStep.Robocopy)} label={t.steps.copy} subtext="robocopy /MOVE /E" />
+                                <ProgressStepItem status={getStepStatus(selectedApp.moveStep, MoveStep.MkLink)} label={t.steps.link} subtext="mklink /J" isLast={true} />
+                             </div>
+                           </div>
+                         ) : selectedApp.status === AppStatus.Restoring ? (
+                           <div className="space-y-1">
+                             <div className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4 pl-1">Restore Progress</div>
+                             <div className="pl-2 border-l border-slate-800 space-y-2">
+                                <ProgressStepItem status={getStepStatus(selectedApp.moveStep, MoveStep.Unlink)} label={t.steps.unlink} />
+                                <ProgressStepItem status={getStepStatus(selectedApp.moveStep, MoveStep.RestoreCopy)} label={t.steps.restoreCopy} subtext="robocopy /MOVE" isLast={true} />
                              </div>
                            </div>
                          ) : selectedApp.status === AppStatus.Moved ? (
@@ -496,12 +525,19 @@ export default function App() {
                              </div>
                              <div>
                                 <h4 className="text-lg font-bold text-green-400">{t.migrated}</h4>
-                                <p className="text-sm text-green-500/60 mt-2">Symbolic link created successfully.</p>
+                                <p className="text-sm text-green-500/60 mt-2">Symbolic link is active.</p>
                              </div>
+                             <button 
+                                onClick={handleRestore}
+                                disabled={isProcessing}
+                                className="mt-4 flex items-center gap-2 px-6 py-3 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-sm font-medium transition-colors border border-slate-700"
+                             >
+                               {isProcessing ? <Loader2 size={16} className="animate-spin" /> : <Undo2 size={16} />}
+                               {t.restoreBtn}
+                             </button>
                            </div>
                          ) : (
                            <div className="space-y-4">
-                             {/* Analysis Result */}
                              {selectedApp.aiAnalysis && (
                                 <div className={`p-4 rounded-xl border ${
                                     selectedApp.safetyScore && selectedApp.safetyScore > 80 
@@ -564,7 +600,6 @@ export default function App() {
           </div>
         </div>
         
-        {/* Settings Modal */}
         <SettingsModal 
           isOpen={isSettingsOpen} 
           onClose={() => setIsSettingsOpen(false)} 
@@ -573,7 +608,6 @@ export default function App() {
           lang={lang}
         />
 
-        {/* Disclaimer Toast */}
         {!envInfo.isNative && (
         <div className="fixed bottom-6 right-6 max-w-sm bg-slate-900/80 backdrop-blur-md border border-slate-700/50 p-4 rounded-xl shadow-2xl z-40 text-xs text-slate-400 animate-in slide-in-from-bottom-10 fade-in duration-700">
           <div className="flex gap-3 items-start">
@@ -588,7 +622,6 @@ export default function App() {
         </div>
         )}
 
-        {/* Download Modal */}
         {showDownloadModal && (
           <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4 animate-in fade-in duration-300">
              <div className="bg-slate-900 border border-slate-700 w-full max-w-md rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-300">
