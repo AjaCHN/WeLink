@@ -11,7 +11,6 @@ import {
   Loader2,
   Check,
   Circle,
-  Languages,
   Minus,
   Square,
   X,
@@ -139,12 +138,6 @@ export default function App() {
       type
     }]);
   }, []);
-
-  const toggleLanguage = () => {
-    const newLang = lang === 'en' ? 'zh' : 'en';
-    setLang(newLang);
-    setSettings(prev => ({ ...prev, language: newLang }));
-  };
 
   const handleSourceDriveChange = async (newDrive: string) => {
     setSourceDrive(newDrive);
@@ -430,13 +423,6 @@ export default function App() {
                >
                  <Download size={14} />
                  <span>{t.download}</span>
-               </button>
-               <button 
-                onClick={toggleLanguage}
-                className="flex items-center gap-2 px-3 py-1.5 bg-slate-900/50 hover:bg-slate-800 text-slate-400 hover:text-white rounded-lg text-xs font-medium transition-all border border-slate-700 hover:border-slate-600 backdrop-blur-sm"
-               >
-                 <Languages size={14} />
-                 <span>{lang === 'en' ? 'EN' : '中'}</span>
                </button>
                <button 
                  onClick={() => setIsSettingsOpen(true)}
