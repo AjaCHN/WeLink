@@ -1,7 +1,7 @@
 import React from 'react';
 import { AppFolder, AppStatus, MoveStep, Language, Theme } from '../types';
 import { TRANSLATIONS } from '../translations';
-import { Folder, ShieldCheck, AlertTriangle, Database, Loader2, ArrowRight, FileText, Check } from 'lucide-react';
+import { Folder, ShieldCheck, AlertTriangle, Database, Loader2, ArrowRight, FileText, Check, Link } from 'lucide-react';
 
 interface AppCardProps {
   app: AppFolder;
@@ -14,13 +14,14 @@ interface AppCardProps {
 export const AppCard: React.FC<AppCardProps> = ({ app, isSelected, onSelect, lang, theme }) => {
   const t = TRANSLATIONS[lang];
   const isDark = theme === 'dark';
+  const isLinked = app.status === AppStatus.Moved || app.isJunction;
 
   const getStatusColor = (status: AppStatus) => {
     switch (status) {
       case AppStatus.Moved: 
         return isDark 
-          ? 'text-emerald-400 border-emerald-500/30 bg-emerald-500/5' 
-          : 'text-emerald-600 border-emerald-200 bg-emerald-50';
+          ? 'text-emerald-400 border-emerald-500/50 bg-emerald-500/10' 
+          : 'text-emerald-700 border-emerald-300 bg-emerald-50';
       case AppStatus.Error: 
         return isDark 
           ? 'text-red-400 border-red-500/30 bg-red-500/5' 
@@ -61,12 +62,21 @@ export const AppCard: React.FC<AppCardProps> = ({ app, isSelected, onSelect, lan
 
   return (
     <div 
-      onClick={() => app.status === AppStatus.Ready ? onSelect(app.id) : null}
+      onClick={() => app.status === AppStatus.Ready || app.status === AppStatus.Moved ? onSelect(app.id) : null}
       className={`${containerBase} ${containerState} ${getStatusColor(app.status)}`}
     >
       {/* Background Gradient Mesh for Selected State */}
       {isSelected && (
         <div className="absolute inset-0 bg-gradient-to-r from-blue-500/10 to-transparent opacity-50 pointer-events-none" />
+      )}
+
+      {/* Linked Indicator (Icon in corner) */}
+      {isLinked && !isSelected && (
+         <div className={`absolute top-0 right-0 p-1.5 rounded-bl-lg border-b border-l ${
+            isDark ? 'bg-emerald-500/20 border-emerald-500/30 text-emerald-400' : 'bg-emerald-100 border-emerald-200 text-emerald-600'
+         }`}>
+           <Link size={12} strokeWidth={2.5} />
+         </div>
       )}
 
       <div className="relative flex items-start justify-between gap-3.5">
@@ -76,11 +86,11 @@ export const AppCard: React.FC<AppCardProps> = ({ app, isSelected, onSelect, lan
           ${isSelected 
             ? 'bg-gradient-to-br from-blue-500 to-blue-600 text-white shadow-blue-500/20 scale-105' 
             : (isDark 
-                ? 'bg-slate-800 text-slate-500 group-hover:text-slate-200 group-hover:bg-slate-700' 
-                : 'bg-slate-100 text-slate-400 group-hover:text-slate-600 group-hover:bg-slate-200')}
+                ? (isLinked ? 'bg-emerald-900/30 text-emerald-400' : 'bg-slate-800 text-slate-500 group-hover:text-slate-200 group-hover:bg-slate-700') 
+                : (isLinked ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-100 text-slate-400 group-hover:text-slate-600 group-hover:bg-slate-200'))}
         `}>
-          {app.status === AppStatus.Moved ? (
-             <Check size={20} strokeWidth={3} />
+          {isLinked ? (
+             <Link size={20} strokeWidth={2.5} />
           ) : (
              <Folder size={20} fill={isSelected ? "currentColor" : "none"} />
           )}
@@ -90,16 +100,9 @@ export const AppCard: React.FC<AppCardProps> = ({ app, isSelected, onSelect, lan
         <div className="flex-1 min-w-0 flex flex-col h-full justify-between">
           <div>
             <div className="flex justify-between items-start">
-                <h3 className={`font-semibold text-sm truncate tracking-tight ${isSelected ? 'text-white' : (isDark ? 'text-slate-200' : 'text-slate-800')}`}>
+                <h3 className={`font-semibold text-sm truncate tracking-tight pr-4 ${isSelected ? 'text-white' : (isDark ? 'text-slate-200' : 'text-slate-800')}`}>
                 {app.name}
                 </h3>
-                {app.status === AppStatus.Moved && (
-                    <span className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded ml-2 shrink-0 ${
-                        isDark ? 'bg-emerald-500/20 text-emerald-400' : 'bg-emerald-100 text-emerald-600'
-                    }`}>
-                        {t.status.movedTag}
-                    </span>
-                )}
             </div>
             
             <p className={`text-[10px] font-mono truncate mt-0.5 opacity-70 group-hover:opacity-100 transition-opacity ${
@@ -131,6 +134,15 @@ export const AppCard: React.FC<AppCardProps> = ({ app, isSelected, onSelect, lan
                }`}>
                   {app.safetyScore && app.safetyScore > 80 ? <ShieldCheck size={10} /> : <AlertTriangle size={10} />}
                   <span>{app.safetyScore}%</span>
+               </div>
+            )}
+            
+            {/* Status Text for Moved */}
+            {isLinked && (
+               <div className={`flex items-center gap-1 text-[10px] px-2 py-0.5 rounded border font-bold uppercase tracking-wider ${
+                 isDark ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-emerald-50 text-emerald-600 border-emerald-200'
+               }`}>
+                  {t.status.movedTag}
                </div>
             )}
           </div>
